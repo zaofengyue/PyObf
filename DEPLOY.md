@@ -2,10 +2,7 @@
 
 ---
 
-## 方式一：Cloudflare Pages（推荐，Git 集成，自动持续部署）
-
-这种方式最省心：以后你 `git push`，Cloudflare 会自动重新部署，
-全程不需要在本地安装任何东西。
+## 方式一：Cloudflare Pages
 
 1. 把项目代码推到你的 GitHub 仓库（在 GitHub 网页上直接
    "Add file → Upload files" 拖拽上传也可以，完全不用 git 命令行）。
@@ -29,7 +26,7 @@
 
 ---
 
-## 方式二：Cloudflare Pages（Direct Upload，拖拽上传，不连接 Git）
+## 方式二：Cloudflare Pages（Direct Upload，拖拽上传）
 
 如果你不想连接 GitHub，也可以直接把文件拖进 Dashboard：
 
@@ -43,19 +40,14 @@
 5. 点击 **Deploy site**。
 6. 部署完成后同样会得到 `https://<项目名>.pages.dev` 地址。
 7. 以后要更新，回到该项目页面，点击 **Create deployment**，
-   重新拖拽最新的文件夹/压缩包即可（Direct Upload 项目不能中途改成
-   Git 集成，如果后面想用自动部署，需要新建一个 Git 集成的项目）。
-
-> 两种方式都不涉及 Workers（不需要 `wrangler.toml`、不需要 Workers 脚本）——
-> 因为整个应用是静态资源 + 浏览器里运行的 WebAssembly，Pages 本身就够用。
+   重新拖拽最新的文件夹/压缩包即可。
 
 ---
 
 ## 方式三：AlwaysData
 
 AlwaysData 是通用虚拟主机，静态站点直接放进站点目录即可，不需要
-配置任何 Python 后端（因为混淆逻辑跑在访客浏览器里，不是在 AlwaysData
-的服务器上跑）。
+配置任何 Python 后端。
 
 1. 登录 [AlwaysData 管理后台](https://admin.alwaysdata.com)。
 2. 左侧 **Web** → **Sites**，点击新建一个站点（或使用注册时自带的默认站点）。
@@ -72,7 +64,7 @@ AlwaysData 是通用虚拟主机，静态站点直接放进站点目录即可，
 
 ---
 
-## 方式四：CT8（免费虚拟主机）
+## 方式四：CT8
 
 CT8 的后台和常见的虚拟主机面板类似，同样只需要把静态文件放进网站根目录：
 
