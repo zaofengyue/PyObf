@@ -12,22 +12,22 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/eclipse.min.css" />
 
 <style>
   :root{
-    --bg:            #0d1117;
-    --bg-raised:     #141a22;
-    --panel:         #171d27;
-    --border:        #262d3a;
-    --border-soft:   #1e2531;
-    --text:          #e7eaf0;
-    --text-dim:      #8b93a6;
-    --text-faint:    #5b6478;
-    --amber:         #f2b705;
-    --amber-dim:     #a67f0c;
-    --teal:          #34d1a1;
-    --red:           #ef5b5b;
+    --bg:            #f7f8fa;
+    --bg-raised:     #ffffff;
+    --panel:         #ffffff;
+    --border:        #dde1e8;
+    --border-soft:   #e8eaef;
+    --text:          #1b2028;
+    --text-dim:      #5b6478;
+    --text-faint:    #8b93a6;
+    --amber:         #b8790a;
+    --amber-dim:     #e0a530;
+    --teal:          #0f9d72;
+    --red:           #d43f3f;
     --radius:        10px;
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -61,7 +61,7 @@
   }
   .brand{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-weight:700; font-size:18px; letter-spacing:.02em; }
   .brand .glyph{
-    width:30px; height:30px; border-radius:8px; background:linear-gradient(145deg,#1c2330,#12161e);
+    width:30px; height:30px; border-radius:8px; background:linear-gradient(145deg,#eef0f4,#ffffff);
     border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
     color:var(--amber); font-size:15px;
   }
@@ -73,65 +73,6 @@
     border-radius:8px; color:var(--text) !important; font-size:13px; font-family:var(--mono);
   }
   .gh-btn:hover{ border-color:var(--amber-dim); text-decoration:none; }
-
-  /* ---------- hero ---------- */
-  .hero{ padding:56px 0 40px; }
-  .eyebrow{
-    display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px;
-    color:var(--teal); background:rgba(52,209,161,0.08); border:1px solid rgba(52,209,161,0.25);
-    padding:5px 10px; border-radius:999px; letter-spacing:.04em;
-  }
-  .eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--teal); }
-  .hero h1{
-    font-family:var(--mono); font-weight:700; font-size:clamp(28px,4.2vw,44px);
-    margin:18px 0 12px; letter-spacing:-0.01em; max-width:16ch;
-  }
-  .hero h1 .hl{ color:var(--amber); }
-  .hero p.lead{ color:var(--text-dim); font-size:16px; max-width:56ch; margin:0 0 24px; }
-  .hero-badges{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:36px; }
-  .badge{
-    font-family:var(--mono); font-size:12px; color:var(--text-dim);
-    border:1px solid var(--border); background:var(--bg-raised); padding:6px 10px; border-radius:8px;
-    display:flex; align-items:center; gap:6px;
-  }
-  .badge b{ color:var(--text); font-weight:600; }
-
-  /* live before/after demo strip */
-  .demo{
-    display:grid; grid-template-columns:1fr auto 1fr; gap:0; align-items:stretch;
-    border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
-    background:var(--panel);
-  }
-  .demo .side{ padding:16px 18px; min-width:0; }
-  .demo .side h3{
-    margin:0 0 10px; font-family:var(--mono); font-size:11px; letter-spacing:.08em;
-    text-transform:uppercase; color:var(--text-faint); font-weight:600;
-  }
-  .demo pre{
-    margin:0; font-family:var(--mono); font-size:12.5px; line-height:1.6; color:var(--text);
-    white-space:pre-wrap; word-break:break-word; min-height:96px;
-  }
-  .demo .side.after pre{ color:var(--amber); }
-  .demo .arrow{
-    display:flex; align-items:center; justify-content:center; width:52px;
-    background:var(--bg-raised); border-left:1px solid var(--border); border-right:1px solid var(--border);
-    color:var(--text-faint); font-family:var(--mono);
-    position:relative; overflow:hidden;
-  }
-  .demo .arrow span{ position:relative; z-index:1; }
-  .scanline{
-    position:absolute; inset:0; background:linear-gradient(180deg, transparent, rgba(242,183,5,0.35), transparent);
-    height:40%; animation:scan 2.6s linear infinite;
-  }
-  @media (prefers-reduced-motion: reduce){ .scanline{ animation:none; display:none; } }
-  @keyframes scan{ 0%{ transform:translateY(-120%);} 100%{ transform:translateY(280%);} }
-
-  @media (max-width: 720px){
-    .demo{ grid-template-columns:1fr; }
-    .demo .arrow{ width:100%; height:34px; border-left:none; border-right:none; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
-    .scanline{ height:100%; width:40%; animation:scanH 2.6s linear infinite; background:linear-gradient(90deg, transparent, rgba(242,183,5,0.35), transparent); }
-    @keyframes scanH{ 0%{ transform:translateX(-120%);} 100%{ transform:translateX(280%);} }
-  }
 
   /* ---------- section titles ---------- */
   section{ padding:14px 0 44px; }
@@ -192,9 +133,9 @@
   .stats-row .shrink{ color:var(--teal); }
   .stats-row .grow{ color:var(--amber); }
 
-  .warnings{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(242,183,5,0.35); background:rgba(242,183,5,0.06); border-radius:8px; font-size:13px; color:#f4d27a; }
+  .warnings{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(184,121,10,0.35); background:rgba(184,121,10,0.06); border-radius:8px; font-size:13px; color:#8a5c08; }
   .warnings b{ display:block; margin-bottom:4px; color:var(--amber); font-family:var(--mono); font-size:12px; letter-spacing:.04em; text-transform:uppercase; }
-  .errorbox{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(239,91,91,0.4); background:rgba(239,91,91,0.08); border-radius:8px; font-size:13px; color:#ff9d9d; font-family:var(--mono); white-space:pre-wrap; }
+  .errorbox{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(212,63,63,0.4); background:rgba(212,63,63,0.06); border-radius:8px; font-size:13px; color:#a82c2c; font-family:var(--mono); white-space:pre-wrap; }
 
   /* ---------- explainer cards ---------- */
   .cards{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
@@ -226,36 +167,6 @@
       </a>
     </nav>
   </header>
-
-  <section class="hero">
-    <span class="eyebrow"><span class="dot"></span> 100% 本地运行 · 零后端 · WebAssembly</span>
-    <h1>在浏览器里，把 Python <span class="hl">变成天书</span></h1>
-    <p class="lead">
-      PyObf 是一个纯前端的 Python 源码混淆工具：重命名局部变量、剥离注释与文档字符串、编码字符串常量、压缩缩进。
-      混淆引擎本身就是一段 Python 代码，通过 Pyodide 在你的浏览器里以 WebAssembly 方式运行——源码永远不会离开这台设备。
-    </p>
-    <div class="hero-badges">
-      <span class="badge">⚙ 引擎 <b>ast + tokenize</b></span>
-      <span class="badge">🧠 作用域感知<b>变量重命名</b></span>
-      <span class="badge">🔒 不上传<b>任何代码</b></span>
-      <span class="badge">☁ 可部署到 <b>Cloudflare Pages</b></span>
-    </div>
-
-    <div class="demo" aria-hidden="true">
-      <div class="side before">
-        <h3>混淆前</h3>
-        <pre id="demoBefore">def greet(name):
-    # say hi
-    message = f"Hello, {name}!"
-    return message</pre>
-      </div>
-      <div class="arrow"><div class="scanline"></div><span>→</span></div>
-      <div class="side after">
-        <h3>混淆后</h3>
-        <pre id="demoAfter">加载 Pyodide 中，稍候实时演示…</pre>
-      </div>
-    </div>
-  </section>
 
   <section id="workspace">
     <div class="section-head">
@@ -397,11 +308,11 @@ if __name__ == "__main__":
 `;
 
   const inputCM = CodeMirror.fromTextArea(document.getElementById('inputEditor'), {
-    mode: 'python', theme: 'material-darker', lineNumbers: true, indentUnit: 4,
+    mode: 'python', theme: 'eclipse', lineNumbers: true, indentUnit: 4,
     tabSize: 4, indentWithTabs: false, viewportMargin: Infinity, lineWrapping: false,
   });
   const outputCM = CodeMirror.fromTextArea(document.getElementById('outputEditor'), {
-    mode: 'python', theme: 'material-darker', lineNumbers: true, readOnly: true,
+    mode: 'python', theme: 'eclipse', lineNumbers: true, readOnly: true,
     viewportMargin: Infinity, lineWrapping: false,
   });
   inputCM.setValue(EXAMPLE);
@@ -447,7 +358,6 @@ if __name__ == "__main__":
       pyodide.runPython(code);
       setStatus('ready', 'Pyodide 就绪 · 引擎已加载');
       btnRun.disabled = false;
-      runDemo();
     } catch (err){
       console.error(err);
       setStatus('error', '加载失败：' + err.message);
@@ -504,23 +414,6 @@ __pyobf_json.dumps(__pyobf_result)
 
   function escapeHtml(s){
     return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  function runDemo(){
-    try{
-      const demoSrc = [
-        'def greet(name):',
-        '    # say hi',
-        '    message = f"Hello, {name}!"',
-        '    return message',
-        ''
-      ].join(String.fromCharCode(10));
-      const r = callObfuscate(
-        demoSrc,
-        { rename_locals: true, strip_docstrings: true, encode_strings: false, compact_indent: false, name_style: 'hex', name_length: 6, seed: 7 }
-      );
-      if (!r.error) document.getElementById('demoAfter').textContent = r.code.trim();
-    } catch(e){ /* non-fatal */ }
   }
 
   document.getElementById('btnRun').addEventListener('click', runObfuscation);
