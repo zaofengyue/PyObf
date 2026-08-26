@@ -12,22 +12,23 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/eclipse.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
 
 <style>
   :root{
-    --bg:            #f7f8fa;
-    --bg-raised:     #ffffff;
-    --panel:         #ffffff;
-    --border:        #dde1e8;
-    --border-soft:   #e8eaef;
-    --text:          #1b2028;
-    --text-dim:      #5b6478;
-    --text-faint:    #8b93a6;
-    --amber:         #b8790a;
-    --amber-dim:     #e0a530;
-    --teal:          #0f9d72;
-    --red:           #d43f3f;
+    --bg:            #0d1117;
+    --bg-raised:     #141a22;
+    --panel:         #171d27;
+    --border:        #262d3a;
+    --border-soft:   #1e2531;
+    --text:          #e7eaf0;
+    --text-dim:      #8b93a6;
+    --text-faint:    #5b6478;
+    --amber:         #f2b705;
+    --amber-dim:     #a67f0c;
+    --amber-strong:  #f2b705;
+    --teal:          #34d1a1;
+    --red:           #ef5b5b;
     --radius:        10px;
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -56,15 +57,17 @@
   .wrap{ max-width:1180px; margin:0 auto; padding:0 24px; }
 
   header.top{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:18px 0; border-bottom:1px solid var(--border-soft);
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+    padding:20px 0; border-bottom:1px solid var(--border-soft);
   }
-  .brand{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-weight:700; font-size:18px; letter-spacing:.02em; }
+  .brand{ display:flex; align-items:baseline; gap:10px; font-family:var(--mono); font-weight:700; font-size:18px; letter-spacing:.02em; }
   .brand .glyph{
-    width:30px; height:30px; border-radius:8px; background:linear-gradient(145deg,#eef0f4,#ffffff);
+    width:30px; height:30px; border-radius:8px; background:linear-gradient(145deg,#1c2330,#12161e);
     border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
-    color:var(--amber); font-size:15px;
+    color:var(--amber); font-size:15px; vertical-align:middle;
   }
+  .brand .tagline{ font-family:var(--sans); font-weight:400; font-size:13px; color:var(--text-faint); }
+  .top-right{ display:flex; align-items:center; gap:18px; }
   nav.top-links{ display:flex; align-items:center; gap:20px; font-size:14px; color:var(--text-dim); }
   nav.top-links a{ color:var(--text-dim); }
   nav.top-links a:hover{ color:var(--amber); }
@@ -75,12 +78,12 @@
   .gh-btn:hover{ border-color:var(--amber-dim); text-decoration:none; }
 
   /* ---------- section titles ---------- */
-  section{ padding:14px 0 44px; }
+  section{ padding:28px 0 44px; }
   .section-head{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
   .section-head h2{ font-family:var(--mono); font-size:15px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin:0; font-weight:600; }
   #status{ font-family:var(--mono); font-size:12.5px; color:var(--text-faint); display:flex; align-items:center; gap:8px; }
   #status .led{ width:8px; height:8px; border-radius:50%; background:var(--text-faint); flex:none; }
-  #status.loading .led{ background:var(--amber); animation:pulse 1s ease-in-out infinite; }
+  #status.loading .led{ background:var(--amber-strong); animation:pulse 1s ease-in-out infinite; }
   #status.ready .led{ background:var(--teal); }
   #status.error .led{ background:var(--red); }
   @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
@@ -92,7 +95,7 @@
     background:var(--panel); margin-bottom:16px;
   }
   .opt{ display:flex; align-items:center; gap:7px; font-size:13.5px; color:var(--text); user-select:none; }
-  .opt input[type=checkbox]{ accent-color:var(--amber); width:15px; height:15px; }
+  .opt input[type=checkbox]{ accent-color:var(--amber-strong); width:15px; height:15px; }
   .opt.select-opt{ gap:8px; }
   select, input[type=number]{
     background:var(--bg-raised); border:1px solid var(--border); color:var(--text);
@@ -105,7 +108,7 @@
     padding:9px 16px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:transform .05s ease;
   }
   .btn:active{ transform:translateY(1px); }
-  .btn-primary{ background:var(--amber); color:#151206; }
+  .btn-primary{ background:var(--amber-strong); color:#151206; }
   .btn-primary:hover{ background:#ffcb2e; }
   .btn-primary:disabled{ background:var(--amber-dim); color:#151206; opacity:.55; cursor:progress; }
   .btn-ghost{ background:transparent; border-color:var(--border); color:var(--text); }
@@ -133,18 +136,9 @@
   .stats-row .shrink{ color:var(--teal); }
   .stats-row .grow{ color:var(--amber); }
 
-  .warnings{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(184,121,10,0.35); background:rgba(184,121,10,0.06); border-radius:8px; font-size:13px; color:#8a5c08; }
+  .warnings{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(242,183,5,0.35); background:rgba(242,183,5,0.06); border-radius:8px; font-size:13px; color:#f4d27a; }
   .warnings b{ display:block; margin-bottom:4px; color:var(--amber); font-family:var(--mono); font-size:12px; letter-spacing:.04em; text-transform:uppercase; }
-  .errorbox{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(212,63,63,0.4); background:rgba(212,63,63,0.06); border-radius:8px; font-size:13px; color:#a82c2c; font-family:var(--mono); white-space:pre-wrap; }
-
-  /* ---------- explainer cards ---------- */
-  .cards{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
-  @media (max-width: 900px){ .cards{ grid-template-columns:repeat(2,1fr); } }
-  @media (max-width: 560px){ .cards{ grid-template-columns:1fr; } }
-  .card{ border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--panel); }
-  .card .num{ font-family:var(--mono); color:var(--amber); font-size:12px; letter-spacing:.06em; }
-  .card h4{ margin:8px 0 6px; font-size:14.5px; }
-  .card p{ margin:0; font-size:13px; color:var(--text-dim); }
+  .errorbox{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(239,91,91,0.4); background:rgba(239,91,91,0.08); border-radius:8px; font-size:13px; color:#ff9d9d; font-family:var(--mono); white-space:pre-wrap; }
 
   footer{ border-top:1px solid var(--border-soft); padding:26px 0 40px; color:var(--text-faint); font-size:12.5px; }
   footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
@@ -158,27 +152,22 @@
 
 <div class="wrap">
   <header class="top">
-    <div class="brand"><span class="glyph">{}</span> PyObf</div>
-    <nav class="top-links">
-      <a href="#workspace">工具</a>
-      <a href="#how">原理</a>
+    <div class="brand"><span class="glyph">{}</span> PyObf <span class="tagline">纯浏览器端 Python 代码混淆工具</span></div>
+    <div class="top-right">
+      <div id="status" class="loading"><span class="led"></span><span id="statusText">正在加载 Python 运行时 (Pyodide)…</span></div>
       <a class="gh-btn" href="https://github.com/zaofengyue/pyobf" target="_blank" rel="noopener">
         ★ GitHub
       </a>
-    </nav>
+    </div>
   </header>
 
   <section id="workspace">
-    <div class="section-head">
-      <h2>混淆工作台</h2>
-      <div id="status" class="loading"><span class="led"></span><span id="statusText">正在加载 Python 运行时 (Pyodide)…</span></div>
-    </div>
-
     <div class="toolbar">
       <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
       <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
-      <label class="opt"><input type="checkbox" id="optStr" /> 编码字符串常量 (base64)</label>
-      <label class="opt"><input type="checkbox" id="optCompact" /> 压缩缩进为 1 空格</label>
+      <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串常量 (base64)</label>
+      <label class="opt"><input type="checkbox" id="optCompact" checked /> 压缩缩进为 1 空格</label>
+      <label class="opt"><input type="checkbox" id="optPayload" checked /> 打包为单行 exec (强力模式)</label>
 
       <label class="opt select-opt">
         命名风格
@@ -231,32 +220,6 @@
     <div id="warningsBox"></div>
     <div id="errorBox"></div>
   </section>
-
-  <section id="how">
-    <div class="section-head"><h2>它做了什么</h2></div>
-    <div class="cards">
-      <div class="card">
-        <div class="num">01</div>
-        <h4>作用域感知重命名</h4>
-        <p>用 <code>ast</code> 分析每个函数的作用域，只重命名函数体内纯局部的变量；函数参数、全局名、类属性、导入名保持不变，避免破坏关键字参数调用等程序行为。</p>
-      </div>
-      <div class="card">
-        <div class="num">02</div>
-        <h4>自动跳过危险代码</h4>
-        <p>检测到 <code>eval / exec / getattr / globals()</code> 等动态特性时，自动禁用重命名并给出提示，而不是生成一个跑不起来的脚本。</p>
-      </div>
-      <div class="card">
-        <div class="num">03</div>
-        <h4>注释与文档字符串</h4>
-        <p>源码先转换为 AST 再重新生成，注释本就不在 AST 中，因此天然被剥离；文档字符串会被单独检测并移除。</p>
-      </div>
-      <div class="card">
-        <div class="num">04</div>
-        <h4>字符串编码</h4>
-        <p>普通字符串字面量会被替换为 <code>base64</code> 解码调用；f-string 的文本片段会被保留，只有其表达式部分参与转换，避免破坏格式化输出。</p>
-      </div>
-    </div>
-  </section>
 </div>
 
 <footer>
@@ -308,11 +271,11 @@ if __name__ == "__main__":
 `;
 
   const inputCM = CodeMirror.fromTextArea(document.getElementById('inputEditor'), {
-    mode: 'python', theme: 'eclipse', lineNumbers: true, indentUnit: 4,
+    mode: 'python', theme: 'material-darker', lineNumbers: true, indentUnit: 4,
     tabSize: 4, indentWithTabs: false, viewportMargin: Infinity, lineWrapping: false,
   });
   const outputCM = CodeMirror.fromTextArea(document.getElementById('outputEditor'), {
-    mode: 'python', theme: 'eclipse', lineNumbers: true, readOnly: true,
+    mode: 'python', theme: 'material-darker', lineNumbers: true, readOnly: true,
     viewportMargin: Infinity, lineWrapping: false,
   });
   inputCM.setValue(EXAMPLE);
@@ -336,6 +299,8 @@ if __name__ == "__main__":
       strip_docstrings: document.getElementById('optDoc').checked,
       encode_strings: document.getElementById('optStr').checked,
       compact_indent: document.getElementById('optCompact').checked,
+      payload_mode: document.getElementById('optPayload').checked,
+      payload_reverse: true,
       name_style: document.getElementById('optStyle').value,
       name_length: parseInt(document.getElementById('optLength').value || '6', 10),
       seed: seedVal === '' ? null : parseInt(seedVal, 10),

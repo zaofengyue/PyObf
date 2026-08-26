@@ -23,6 +23,7 @@ import keyword
 import random
 import string
 import textwrap
+import zlib
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -383,6 +384,26 @@ def _compact_indent(source: str, indent: int) -> str:
     return "\n".join(out_lines)
 
 
+def wrap_as_payload(code: str, reverse: bool = True, compress_level: int = 9) -> str:
+    """Compresses the whole source with zlib, base64-encodes it (optionally
+    reversing the string for an extra cosmetic layer), and emits a single
+    line that decompresses and exec()s it at runtime - the same style used
+    by tools like the referenced obf.eooce.com."""
+    raw = code.encode("utf-8")
+    compressed = zlib.compress(raw, compress_level)
+    b64 = base64.b64encode(compressed).decode("ascii")
+    if reverse:
+        b64 = b64[::-1]
+        return (
+            "_ = (lambda __: __import__('zlib').decompress(__import__('base64')"
+            ".b64decode(__[::-1]))); exec(_('%s'))" % b64
+        )
+    return (
+        "_ = (lambda __: __import__('zlib').decompress(__import__('base64')"
+        ".b64decode(__))); exec(_('%s'))" % b64
+    )
+
+
 def obfuscate(source: str, options: dict) -> dict:
     """
     options:
@@ -393,6 +414,12 @@ def obfuscate(source: str, options: dict) -> dict:
       name_style: "hex" | "letters" | "il1"
       name_length: int (4-16)
       seed: int | None
+      payload_mode: bool   - wrap the whole result as a single-line
+                             zlib+base64 exec() bootstrap (strongest,
+                             least readable; matches the "obf.eooce.com"
+                             style). Applied last, after everything else.
+      payload_reverse: bool - also reverse the base64 string as a cheap
+                             extra cosmetic layer (default True)
     """
     warnings = []
     opts = {
@@ -403,6 +430,8 @@ def obfuscate(source: str, options: dict) -> dict:
         "name_style": "hex",
         "name_length": 6,
         "seed": None,
+        "payload_mode": False,
+        "payload_reverse": True,
     }
     opts.update(options or {})
 
@@ -445,6 +474,9 @@ def obfuscate(source: str, options: dict) -> dict:
 
     if opts["compact_indent"]:
         result = _compact_indent(result, 1)
+
+    if opts["payload_mode"]:
+        result = wrap_as_payload(result, reverse=bool(opts["payload_reverse"]))
 
     # Comments and blank-line noise are removed automatically because
     # ast.unparse regenerates source purely from the AST (comments are not
