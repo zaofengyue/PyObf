@@ -14,7 +14,7 @@
    - **Production branch**：`main`（或你的默认分支）
    - **Framework preset**：选择 **None**
    - **Build command**：留空（不需要构建）
-   - **Build output directory**：`/`（项目根目录，因为 `index.html` 就在根目录）
+   - **Build output directory**：`/`（项目根目录）
 7. 点击 **Save and Deploy**。
 8. 等待几十秒，Cloudflare 会给你一个
    `https://<项目名>.pages.dev` 的地址，打开即可访问。
@@ -34,7 +34,7 @@
 2. **Create application** → **Pages** 标签页 → **Upload assets**
    （即 Direct Upload / "Get started" 里的 "Drag and drop your files"）。
 3. 输入项目名称，例如 `pyobf`。
-4. 把项目文件夹（包含 `index.html`、`obfuscator.py`、`README.md` 等）
+4. 把项目文件夹（包含 `index.html`、`obfuscator.py` 等）
    整个拖到上传框里 —— 支持直接拖一个文件夹，或者先打包成一个 `.zip`
    再拖进去，两种都可以。
 5. 点击 **Deploy site**。
