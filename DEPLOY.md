@@ -1,10 +1,4 @@
-# 部署指南（全程 Dashboard 操作，不需要命令行）
-
-这个项目是**纯静态文件**（`index.html` + `obfuscator.py`），没有构建步骤，
-没有依赖安装，没有后端。任何能托管静态文件的平台都能用。下面给出三种方式。
-
-> 提示：部署前记得把 `index.html` 里两处
-> `https://github.com/YOUR_USERNAME/pyobf` 换成你自己的仓库地址。
+# 部署指南
 
 ---
 
