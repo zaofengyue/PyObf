@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PyObf — 在线 Python 代码混淆工具</title>
+<meta name="description" content="纯浏览器端运行的 Python 源码混淆工具：变量重命名、去除注释与文档字符串、字符串编码、代码压缩。基于 Pyodide (WebAssembly)，代码永不上传服务器。" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230d1117'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23f2b705' font-family='monospace'%3E%7B%7D%3C/text%3E%3C/svg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
+
+<style>
+  :root{
+    --bg:            #0d1117;
+    --bg-raised:     #141a22;
+    --panel:         #171d27;
+    --border:        #262d3a;
+    --border-soft:   #1e2531;
+    --text:          #e7eaf0;
+    --text-dim:      #8b93a6;
+    --text-faint:    #5b6478;
+    --amber:         #f2b705;
+    --amber-dim:     #a67f0c;
+    --teal:          #34d1a1;
+    --red:           #ef5b5b;
+    --radius:        10px;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(242,183,5,0.07), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(52,209,161,0.05), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:rgba(242,183,5,0.28); }
+  a{ color:var(--amber); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+
+  :focus-visible{ outline:2px solid var(--amber); outline-offset:2px; border-radius:4px; }
+
+  /* ---------- layout shell ---------- */
+  .wrap{ max-width:1180px; margin:0 auto; padding:0 24px; }
+
+  header.top{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 0; border-bottom:1px solid var(--border-soft);
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-weight:700; font-size:18px; letter-spacing:.02em; }
+  .brand .glyph{
+    width:30px; height:30px; border-radius:8px; background:linear-gradient(145deg,#1c2330,#12161e);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    color:var(--amber); font-size:15px;
+  }
+  nav.top-links{ display:flex; align-items:center; gap:20px; font-size:14px; color:var(--text-dim); }
+  nav.top-links a{ color:var(--text-dim); }
+  nav.top-links a:hover{ color:var(--amber); }
+  .gh-btn{
+    display:flex; align-items:center; gap:8px; border:1px solid var(--border); padding:7px 12px;
+    border-radius:8px; color:var(--text) !important; font-size:13px; font-family:var(--mono);
+  }
+  .gh-btn:hover{ border-color:var(--amber-dim); text-decoration:none; }
+
+  /* ---------- hero ---------- */
+  .hero{ padding:56px 0 40px; }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px;
+    color:var(--teal); background:rgba(52,209,161,0.08); border:1px solid rgba(52,209,161,0.25);
+    padding:5px 10px; border-radius:999px; letter-spacing:.04em;
+  }
+  .eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--teal); }
+  .hero h1{
+    font-family:var(--mono); font-weight:700; font-size:clamp(28px,4.2vw,44px);
+    margin:18px 0 12px; letter-spacing:-0.01em; max-width:16ch;
+  }
+  .hero h1 .hl{ color:var(--amber); }
+  .hero p.lead{ color:var(--text-dim); font-size:16px; max-width:56ch; margin:0 0 24px; }
+  .hero-badges{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:36px; }
+  .badge{
+    font-family:var(--mono); font-size:12px; color:var(--text-dim);
+    border:1px solid var(--border); background:var(--bg-raised); padding:6px 10px; border-radius:8px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .badge b{ color:var(--text); font-weight:600; }
+
+  /* live before/after demo strip */
+  .demo{
+    display:grid; grid-template-columns:1fr auto 1fr; gap:0; align-items:stretch;
+    border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
+    background:var(--panel);
+  }
+  .demo .side{ padding:16px 18px; min-width:0; }
+  .demo .side h3{
+    margin:0 0 10px; font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--text-faint); font-weight:600;
+  }
+  .demo pre{
+    margin:0; font-family:var(--mono); font-size:12.5px; line-height:1.6; color:var(--text);
+    white-space:pre-wrap; word-break:break-word; min-height:96px;
+  }
+  .demo .side.after pre{ color:var(--amber); }
+  .demo .arrow{
+    display:flex; align-items:center; justify-content:center; width:52px;
+    background:var(--bg-raised); border-left:1px solid var(--border); border-right:1px solid var(--border);
+    color:var(--text-faint); font-family:var(--mono);
+    position:relative; overflow:hidden;
+  }
+  .demo .arrow span{ position:relative; z-index:1; }
+  .scanline{
+    position:absolute; inset:0; background:linear-gradient(180deg, transparent, rgba(242,183,5,0.35), transparent);
+    height:40%; animation:scan 2.6s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce){ .scanline{ animation:none; display:none; } }
+  @keyframes scan{ 0%{ transform:translateY(-120%);} 100%{ transform:translateY(280%);} }
+
+  @media (max-width: 720px){
+    .demo{ grid-template-columns:1fr; }
+    .demo .arrow{ width:100%; height:34px; border-left:none; border-right:none; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+    .scanline{ height:100%; width:40%; animation:scanH 2.6s linear infinite; background:linear-gradient(90deg, transparent, rgba(242,183,5,0.35), transparent); }
+    @keyframes scanH{ 0%{ transform:translateX(-120%);} 100%{ transform:translateX(280%);} }
+  }
+
+  /* ---------- section titles ---------- */
+  section{ padding:14px 0 44px; }
+  .section-head{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+  .section-head h2{ font-family:var(--mono); font-size:15px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin:0; font-weight:600; }
+  #status{ font-family:var(--mono); font-size:12.5px; color:var(--text-faint); display:flex; align-items:center; gap:8px; }
+  #status .led{ width:8px; height:8px; border-radius:50%; background:var(--text-faint); flex:none; }
+  #status.loading .led{ background:var(--amber); animation:pulse 1s ease-in-out infinite; }
+  #status.ready .led{ background:var(--teal); }
+  #status.error .led{ background:var(--red); }
+  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
+  /* ---------- options toolbar ---------- */
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center;
+    padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius);
+    background:var(--panel); margin-bottom:16px;
+  }
+  .opt{ display:flex; align-items:center; gap:7px; font-size:13.5px; color:var(--text); user-select:none; }
+  .opt input[type=checkbox]{ accent-color:var(--amber); width:15px; height:15px; }
+  .opt.select-opt{ gap:8px; }
+  select, input[type=number]{
+    background:var(--bg-raised); border:1px solid var(--border); color:var(--text);
+    font-family:var(--mono); font-size:12.5px; padding:5px 8px; border-radius:6px;
+  }
+  input[type=number]{ width:60px; }
+  .toolbar .spacer{ flex:1 1 auto; }
+  .btn{
+    font-family:var(--mono); font-size:13px; font-weight:600; border-radius:8px; border:1px solid transparent;
+    padding:9px 16px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:transform .05s ease;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-primary{ background:var(--amber); color:#151206; }
+  .btn-primary:hover{ background:#ffcb2e; }
+  .btn-primary:disabled{ background:var(--amber-dim); color:#151206; opacity:.55; cursor:progress; }
+  .btn-ghost{ background:transparent; border-color:var(--border); color:var(--text); }
+  .btn-ghost:hover{ border-color:var(--amber-dim); color:var(--amber); }
+  .btn-sm{ padding:6px 11px; font-size:12px; }
+
+  /* ---------- workspace ---------- */
+  .workspace{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 900px){ .workspace{ grid-template-columns:1fr; } }
+  .pane{ border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:var(--panel); display:flex; flex-direction:column; }
+  .pane-head{
+    display:flex; align-items:center; justify-content:space-between; padding:10px 14px;
+    border-bottom:1px solid var(--border-soft); background:var(--bg-raised);
+  }
+  .pane-head h3{ margin:0; font-family:var(--mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); font-weight:600; }
+  .pane-head .actions{ display:flex; gap:8px; }
+  .CodeMirror{ height:420px !important; font-family:var(--mono) !important; font-size:13px !important; line-height:1.55 !important; }
+  .CodeMirror-gutters{ border-right:1px solid var(--border-soft) !important; }
+
+  .stats-row{
+    display:flex; flex-wrap:wrap; gap:10px 20px; align-items:center; padding:10px 14px;
+    border-top:1px solid var(--border-soft); font-family:var(--mono); font-size:12px; color:var(--text-dim);
+  }
+  .stats-row b{ color:var(--text); }
+  .stats-row .shrink{ color:var(--teal); }
+  .stats-row .grow{ color:var(--amber); }
+
+  .warnings{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(242,183,5,0.35); background:rgba(242,183,5,0.06); border-radius:8px; font-size:13px; color:#f4d27a; }
+  .warnings b{ display:block; margin-bottom:4px; color:var(--amber); font-family:var(--mono); font-size:12px; letter-spacing:.04em; text-transform:uppercase; }
+  .errorbox{ margin:14px 0 0; padding:12px 14px; border:1px solid rgba(239,91,91,0.4); background:rgba(239,91,91,0.08); border-radius:8px; font-size:13px; color:#ff9d9d; font-family:var(--mono); white-space:pre-wrap; }
+
+  /* ---------- explainer cards ---------- */
+  .cards{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  @media (max-width: 900px){ .cards{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width: 560px){ .cards{ grid-template-columns:1fr; } }
+  .card{ border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--panel); }
+  .card .num{ font-family:var(--mono); color:var(--amber); font-size:12px; letter-spacing:.06em; }
+  .card h4{ margin:8px 0 6px; font-size:14.5px; }
+  .card p{ margin:0; font-size:13px; color:var(--text-dim); }
+
+  footer{ border-top:1px solid var(--border-soft); padding:26px 0 40px; color:var(--text-faint); font-size:12.5px; }
+  footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  footer a{ color:var(--text-dim); }
+  footer a:hover{ color:var(--amber); }
+
+  .visually-hidden{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><span class="glyph">{}</span> PyObf</div>
+    <nav class="top-links">
+      <a href="#workspace">工具</a>
+      <a href="#how">原理</a>
+      <a class="gh-btn" href="https://github.com/YOUR_USERNAME/pyobf" target="_blank" rel="noopener">
+        ★ GitHub
+      </a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <span class="eyebrow"><span class="dot"></span> 100% 本地运行 · 零后端 · WebAssembly</span>
+    <h1>在浏览器里，把 Python <span class="hl">变成天书</span></h1>
+    <p class="lead">
+      PyObf 是一个纯前端的 Python 源码混淆工具：重命名局部变量、剥离注释与文档字符串、编码字符串常量、压缩缩进。
+      混淆引擎本身就是一段 Python 代码，通过 Pyodide 在你的浏览器里以 WebAssembly 方式运行——源码永远不会离开这台设备。
+    </p>
+    <div class="hero-badges">
+      <span class="badge">⚙ 引擎 <b>ast + tokenize</b></span>
+      <span class="badge">🧠 作用域感知<b>变量重命名</b></span>
+      <span class="badge">🔒 不上传<b>任何代码</b></span>
+      <span class="badge">☁ 可部署到 <b>Cloudflare Pages</b></span>
+    </div>
+
+    <div class="demo" aria-hidden="true">
+      <div class="side before">
+        <h3>混淆前</h3>
+        <pre id="demoBefore">def greet(name):
+    # say hi
+    message = f"Hello, {name}!"
+    return message</pre>
+      </div>
+      <div class="arrow"><div class="scanline"></div><span>→</span></div>
+      <div class="side after">
+        <h3>混淆后</h3>
+        <pre id="demoAfter">加载 Pyodide 中，稍候实时演示…</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="workspace">
+    <div class="section-head">
+      <h2>混淆工作台</h2>
+      <div id="status" class="loading"><span class="led"></span><span id="statusText">正在加载 Python 运行时 (Pyodide)…</span></div>
+    </div>
+
+    <div class="toolbar">
+      <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
+      <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
+      <label class="opt"><input type="checkbox" id="optStr" /> 编码字符串常量 (base64)</label>
+      <label class="opt"><input type="checkbox" id="optCompact" /> 压缩缩进为 1 空格</label>
+
+      <label class="opt select-opt">
+        命名风格
+        <select id="optStyle">
+          <option value="hex">_0x1a2b (十六进制)</option>
+          <option value="letters">_abcdef (字母)</option>
+          <option value="il1">Il1lI (易混淆)</option>
+        </select>
+      </label>
+      <label class="opt select-opt">
+        名称长度
+        <input type="number" id="optLength" min="4" max="16" value="6" />
+      </label>
+      <label class="opt select-opt">
+        随机种子
+        <input type="number" id="optSeed" placeholder="可选" />
+      </label>
+
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" id="btnExample">加载示例</button>
+      <button class="btn btn-ghost btn-sm" id="btnClear">清空</button>
+      <button class="btn btn-primary" id="btnRun" disabled>▶ 混淆代码</button>
+    </div>
+
+    <div class="workspace">
+      <div class="pane">
+        <div class="pane-head">
+          <h3>原始代码 · input.py</h3>
+          <div class="actions"><button class="btn btn-ghost btn-sm" id="btnPasteInfo" title="直接在编辑器里粘贴/编辑即可">✎ 可编辑</button></div>
+        </div>
+        <textarea id="inputEditor"></textarea>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <h3>混淆结果 · obfuscated.py</h3>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" id="btnCopy">复制</button>
+            <button class="btn btn-ghost btn-sm" id="btnDownload">下载 .py</button>
+          </div>
+        </div>
+        <textarea id="outputEditor"></textarea>
+        <div class="stats-row" id="statsRow" style="display:none;">
+          <span>原始大小 <b id="statOrig">–</b></span>
+          <span>混淆后 <b id="statObf">–</b></span>
+          <span id="statDelta"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="warningsBox"></div>
+    <div id="errorBox"></div>
+  </section>
+
+  <section id="how">
+    <div class="section-head"><h2>它做了什么</h2></div>
+    <div class="cards">
+      <div class="card">
+        <div class="num">01</div>
+        <h4>作用域感知重命名</h4>
+        <p>用 <code>ast</code> 分析每个函数的作用域，只重命名函数体内纯局部的变量；函数参数、全局名、类属性、导入名保持不变，避免破坏关键字参数调用等程序行为。</p>
+      </div>
+      <div class="card">
+        <div class="num">02</div>
+        <h4>自动跳过危险代码</h4>
+        <p>检测到 <code>eval / exec / getattr / globals()</code> 等动态特性时，自动禁用重命名并给出提示，而不是生成一个跑不起来的脚本。</p>
+      </div>
+      <div class="card">
+        <div class="num">03</div>
+        <h4>注释与文档字符串</h4>
+        <p>源码先转换为 AST 再重新生成，注释本就不在 AST 中，因此天然被剥离；文档字符串会被单独检测并移除。</p>
+      </div>
+      <div class="card">
+        <div class="num">04</div>
+        <h4>字符串编码</h4>
+        <p>普通字符串字面量会被替换为 <code>base64</code> 解码调用；f-string 的文本片段会被保留，只有其表达式部分参与转换，避免破坏格式化输出。</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>PyObf · MIT License · 混淆引擎源码见 <a href="obfuscator.py" target="_blank">obfuscator.py</a></span>
+    <span>源码托管于 <a href="https://github.com/YOUR_USERNAME/pyobf" target="_blank" rel="noopener">GitHub</a> · 可部署到 Cloudflare Pages / AlwaysData / CT8</span>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.3/full/pyodide.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  const EXAMPLE = `"""A tiny demo module."""
+import math
+
+
+class Circle:
+    """A circle shape."""
+
+    def __init__(self, radius):
+        self.radius = radius  # store the radius
+
+    def area(self):
+        """Return the circle's area."""
+        r = self.radius
+        result = math.pi * r ** 2
+        return result
+
+
+def greet(name, times=1):
+    # say hello a few times
+    message = f"Hello, {name}!"
+    output = []
+    for i in range(times):
+        output.append(message)
+    return output
+
+
+if __name__ == "__main__":
+    c = Circle(3)
+    print(c.area())
+    for line in greet("World", 2):
+        print(line)
+`;
+
+  const inputCM = CodeMirror.fromTextArea(document.getElementById('inputEditor'), {
+    mode: 'python', theme: 'material-darker', lineNumbers: true, indentUnit: 4,
+    tabSize: 4, indentWithTabs: false, viewportMargin: Infinity, lineWrapping: false,
+  });
+  const outputCM = CodeMirror.fromTextArea(document.getElementById('outputEditor'), {
+    mode: 'python', theme: 'material-darker', lineNumbers: true, readOnly: true,
+    viewportMargin: Infinity, lineWrapping: false,
+  });
+  inputCM.setValue(EXAMPLE);
+
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const btnRun = document.getElementById('btnRun');
+  const warningsBox = document.getElementById('warningsBox');
+  const errorBox = document.getElementById('errorBox');
+  const statsRow = document.getElementById('statsRow');
+
+  function setStatus(kind, text){
+    statusEl.className = kind;
+    statusText.textContent = text;
+  }
+
+  function getOptions(){
+    const seedVal = document.getElementById('optSeed').value;
+    return {
+      rename_locals: document.getElementById('optRename').checked,
+      strip_docstrings: document.getElementById('optDoc').checked,
+      encode_strings: document.getElementById('optStr').checked,
+      compact_indent: document.getElementById('optCompact').checked,
+      name_style: document.getElementById('optStyle').value,
+      name_length: parseInt(document.getElementById('optLength').value || '6', 10),
+      seed: seedVal === '' ? null : parseInt(seedVal, 10),
+    };
+  }
+
+  function humanSize(n){
+    if (n < 1024) return n + ' B';
+    return (n/1024).toFixed(1) + ' KB';
+  }
+
+  let pyodide = null;
+
+  async function initPyodide(){
+    try{
+      pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.3/full/' });
+      const resp = await fetch('obfuscator.py', { cache: 'no-store' });
+      if (!resp.ok) throw new Error('无法加载 obfuscator.py (HTTP ' + resp.status + ')');
+      const code = await resp.text();
+      pyodide.runPython(code);
+      setStatus('ready', 'Pyodide 就绪 · 引擎已加载');
+      btnRun.disabled = false;
+      runDemo();
+    } catch (err){
+      console.error(err);
+      setStatus('error', '加载失败：' + err.message);
+    }
+  }
+
+  function callObfuscate(source, options){
+    pyodide.globals.set('__pyobf_input_source', source);
+    pyodide.globals.set('__pyobf_options_json', JSON.stringify(options));
+    const resultJson = pyodide.runPython(`
+import json as __pyobf_json
+__pyobf_opts = __pyobf_json.loads(__pyobf_options_json)
+__pyobf_result = safe_obfuscate(__pyobf_input_source, __pyobf_opts)
+__pyobf_json.dumps(__pyobf_result)
+`);
+    return JSON.parse(resultJson);
+  }
+
+  function runObfuscation(){
+    if (!pyodide) return;
+    const source = inputCM.getValue();
+    warningsBox.innerHTML = '';
+    errorBox.innerHTML = '';
+    if (!source.trim()){
+      outputCM.setValue('');
+      statsRow.style.display = 'none';
+      return;
+    }
+    let result;
+    try{
+      result = callObfuscate(source, getOptions());
+    } catch (err){
+      errorBox.innerHTML = '<div class="errorbox"><b>JS/Pyodide 错误</b>\\n' + escapeHtml(String(err)) + '</div>';
+      return;
+    }
+    if (result.error){
+      outputCM.setValue('');
+      statsRow.style.display = 'none';
+      errorBox.innerHTML = '<div class="errorbox">' + escapeHtml(result.error) + '</div>';
+      return;
+    }
+    outputCM.setValue(result.code);
+    document.getElementById('statOrig').textContent = humanSize(result.original_size);
+    document.getElementById('statObf').textContent = humanSize(result.obfuscated_size);
+    const deltaEl = document.getElementById('statDelta');
+    const diff = result.obfuscated_size - result.original_size;
+    deltaEl.textContent = (diff >= 0 ? '增大 +' : '减小 ') + humanSize(Math.abs(diff));
+    deltaEl.className = diff >= 0 ? 'grow' : 'shrink';
+    statsRow.style.display = 'flex';
+    if (result.warnings && result.warnings.length){
+      warningsBox.innerHTML = '<div class="warnings"><b>提示</b>' + result.warnings.map(escapeHtml).join('<br>') + '</div>';
+    }
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function runDemo(){
+    try{
+      const demoSrc = [
+        'def greet(name):',
+        '    # say hi',
+        '    message = f"Hello, {name}!"',
+        '    return message',
+        ''
+      ].join(String.fromCharCode(10));
+      const r = callObfuscate(
+        demoSrc,
+        { rename_locals: true, strip_docstrings: true, encode_strings: false, compact_indent: false, name_style: 'hex', name_length: 6, seed: 7 }
+      );
+      if (!r.error) document.getElementById('demoAfter').textContent = r.code.trim();
+    } catch(e){ /* non-fatal */ }
+  }
+
+  document.getElementById('btnRun').addEventListener('click', runObfuscation);
+  document.getElementById('btnExample').addEventListener('click', () => inputCM.setValue(EXAMPLE));
+  document.getElementById('btnClear').addEventListener('click', () => { inputCM.setValue(''); outputCM.setValue(''); statsRow.style.display='none'; warningsBox.innerHTML=''; errorBox.innerHTML=''; });
+  document.getElementById('btnCopy').addEventListener('click', async () => {
+    const text = outputCM.getValue();
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById('btnCopy');
+    const old = btn.textContent; btn.textContent = '已复制 ✓';
+    setTimeout(() => btn.textContent = old, 1200);
+  });
+  document.getElementById('btnDownload').addEventListener('click', () => {
+    const text = outputCM.getValue();
+    if (!text) return;
+    const blob = new Blob([text], { type: 'text/x-python' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'obfuscated.py';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  initPyodide();
+})();
+</script>
+</body>
+</html>
