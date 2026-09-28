@@ -70,14 +70,6 @@ CT8 的后台和常见的虚拟主机面板类似，同样只需要把静态文�
 
 ---
 
-## 自动化发布 Releases 说明（开发者参考）
-
-仓库已配置 GitHub Actions 自动打包工作流（`.github/workflows/release.yml`）：
-- **自动触发**：推送版本 Tag（例如 `git tag v1.0.0 && git push origin v1.0.0`）会自动触发打包，仅提取 `index.html` 与 `obfuscator.py` 生成极简 `pyobf-pages.zip` 并发布到 GitHub Releases。
-- **手动触发**：在 GitHub 网页端的 Actions 标签页中，选中 **Release Pages Bundle**，点击 **Run workflow** 亦可随时手动打包发布。
-
----
-
 ## 通用检查清单
 
 不管部署到哪个平台，上线后建议检查：
