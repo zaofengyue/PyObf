@@ -26,16 +26,41 @@ DUNDER = lambda n: n.startswith("__") and n.endswith("__")
 
 
 def _rand_name(used: set, style: str, length: int) -> str:
+    attempts = 0
     while True:
+        attempts += 1
+        if attempts > 200:
+            length += 1
+            attempts = 0
         if style == "hex":
             body = "".join(random.choice("0123456789abcdef") for _ in range(length))
             name = "_0x" + body
         elif style == "letters":
             name = "_" + "".join(random.choice(string.ascii_lowercase) for _ in range(length))
-        else:
-            name = "".join(random.choice("Il1") for _ in range(max(length, 6)))
+        else:  # "il1"
+            n = max(length, 6)
+            name = random.choice("Il") + "".join(random.choice("Il1") for _ in range(n - 1))
         if name not in used and not keyword.iskeyword(name) and name not in BUILTIN_NAMES:
+            used.add(name)
             return name
+
+
+def collect_identifiers(tree: ast.AST) -> set[str]:
+    used = set(BUILTIN_NAMES) | KEYWORDS
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            used.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            used.add(node.name)
+        elif isinstance(node, ast.arg):
+            used.add(node.arg)
+        elif isinstance(node, ast.alias):
+            used.add(node.asname or node.name.split('.')[0])
+        elif isinstance(node, ast.keyword) and node.arg:
+            used.add(node.arg)
+        elif isinstance(node, ast.Attribute):
+            used.add(node.attr)
+    return used
 
 
 class DynamicUsageScanner(ast.NodeVisitor):
@@ -61,11 +86,30 @@ class ScopeCollector(ast.NodeVisitor):
         self.globals_declared: set[str] = set()
         self.nonlocals_declared: set[str] = set()
         self.imported_names: set[str] = set()
+        self.defined_names: set[str] = set()
 
-    def visit_FunctionDef(self, node): return
-    def visit_AsyncFunctionDef(self, node): return
-    def visit_ClassDef(self, node): return
+    def visit_FunctionDef(self, node):
+        self.defined_names.add(node.name)
+
+    def visit_AsyncFunctionDef(self, node):
+        self.defined_names.add(node.name)
+
+    def visit_ClassDef(self, node):
+        self.defined_names.add(node.name)
+
     def visit_Lambda(self, node): return
+
+    def _visit_comp(self, node):
+        for gen in node.generators:
+            self.visit(gen.iter)
+            for c in gen.ifs:
+                self.visit(c)
+        for attr in ("elt", "key", "value"):
+            child = getattr(node, attr, None)
+            if child is not None:
+                self.visit(child)
+
+    visit_ListComp = visit_SetComp = visit_DictComp = visit_GeneratorExp = _visit_comp
 
     def visit_Global(self, node: ast.Global):
         self.globals_declared.update(node.names)
@@ -120,37 +164,44 @@ class ProtectedNameScanner(ast.NodeVisitor):
 
 
 class Renamer(ast.NodeTransformer):
-    def __init__(self, style: str, length: int, protected: set | None = None):
+    def __init__(self, style: str, length: int, protected: set | None = None, used: set | None = None):
         self.style = style
         self.length = length
         self.protected = protected or set()
-        self.stack: list[dict] = [{}]
+        self.used = used if used is not None else set()
+        self.stack: list[tuple[dict, bool]] = [({}, False)]
 
-    def _push_scope(self, node) -> dict:
+    def _push_scope(self, node, is_class: bool = False) -> dict:
         collector = ScopeCollector()
-        for stmt in node.body:
+        body = node.body if isinstance(node.body, list) else [node.body]
+        for stmt in body:
             collector.visit(stmt)
         params = _collect_params(node.args) if hasattr(node, "args") else set()
-        # 保护 5 排除局部导入别名，防止局部变量随机命名后与 import 库名冲突
         candidates = (collector.locals - params - collector.globals_declared 
-                      - collector.nonlocals_declared - collector.imported_names)
+                      - collector.nonlocals_declared - collector.imported_names - collector.defined_names)
         candidates = {n for n in candidates if not DUNDER(n) and n not in self.protected}
-        mapping = {}
-        used_new = set(collector.imported_names)
-        for n in sorted(candidates):
-            new = _rand_name(used_new, self.style, self.length)
-            mapping[n] = new
-            used_new.add(new)
-        self.stack.append(mapping)
+        
+        shadow = (params | collector.imported_names | collector.defined_names
+                  | collector.globals_declared | collector.nonlocals_declared)
+        mapping = {n: n for n in shadow}
+        if not is_class:
+            for n in sorted(candidates):
+                new = _rand_name(self.used, self.style, self.length)
+                mapping[n] = new
+        self.stack.append((mapping, is_class))
         return mapping
 
     def _pop_scope(self):
         self.stack.pop()
 
     def _lookup(self, name: str):
-        for frame in reversed(self.stack):
-            if name in frame:
-                return frame[name]
+        last = len(self.stack) - 1
+        for i in range(last, -1, -1):
+            mapping, is_class = self.stack[i]
+            if is_class and i != last:
+                continue
+            if name in mapping:
+                return mapping[name]
         return None
 
     def visit_Name(self, node: ast.Name):
@@ -211,14 +262,11 @@ class Renamer(ast.NodeTransformer):
 
     def visit_ClassDef(self, node: ast.ClassDef):
         node.bases = [self.visit(b) for b in node.bases]
+        node.keywords = [self.visit(k) for k in getattr(node, "keywords", [])]
         node.decorator_list = [self.visit(d) for d in node.decorator_list]
-        new_body = []
-        for stmt in node.body:
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                new_body.append(self.visit(stmt))
-            else:
-                new_body.append(stmt)
-        node.body = new_body
+        self._push_scope(node, is_class=True)
+        node.body = [self.visit(s) for s in node.body]
+        self._pop_scope()
         return node
 
     def visit_Attribute(self, node: ast.Attribute):
@@ -441,9 +489,10 @@ class NumberAndBoolEncoder(ast.NodeTransformer):
 
 
 class JunkCodeInjector(ast.NodeTransformer):
-    def __init__(self, style: str = "hex", length: int = 6):
+    def __init__(self, style: str = "hex", length: int = 6, used: set | None = None):
         self.style = style
         self.length = length
+        self.used = used if used is not None else set()
 
     def _generate_junk_stmt(self) -> ast.stmt:
         a = random.randint(11, 49)
@@ -459,7 +508,7 @@ class JunkCodeInjector(ast.NodeTransformer):
             ops=[ast.Eq()],
             comparators=[ast.Constant(value=target)]
         )
-        dummy_var = _rand_name(set(), self.style, self.length)
+        dummy_var = _rand_name(self.used, self.style, self.length)
         body = [
             ast.Assign(
                 targets=[ast.Name(id=dummy_var, ctx=ast.Store())],
@@ -505,22 +554,34 @@ class JunkCodeInjector(ast.NodeTransformer):
         return node
 
 
+def _insert_helper(tree: ast.Module, helper_src: str) -> None:
+    helper_nodes = ast.parse(helper_src).body
+    idx = 0
+    body = tree.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        idx = 1
+    while idx < len(body) and isinstance(body[idx], ast.ImportFrom) and body[idx].module == "__future__":
+        idx += 1
+    tree.body[idx:idx] = helper_nodes
+
+
 DECODE_HELPER_XOR = (
-    "import base64 as __pyobf_b64\n"
+    "import base64 as {b64_name}\n"
     "{cache_name} = {{}}\n"
-    "def {func_name}(__s, __k):\n"
-    "    if __s not in {cache_name}:\n"
-    "        {cache_name}[__s] = bytes(__b ^ __k for __b in __pyobf_b64.b64decode(__s)).decode('utf-8', errors='surrogatepass')\n"
-    "    return {cache_name}[__s]\n"
+    "def {func_name}(_s, _k):\n"
+    "    if _s not in {cache_name}:\n"
+    "        {cache_name}[_s] = bytes(_b ^ _k for _b in {b64_name}.b64decode(_s)).decode('utf-8', errors='surrogatepass')\n"
+    "    return {cache_name}[_s]\n"
 )
 
 DECODE_HELPER_PLAIN = (
-    "import base64 as __pyobf_b64\n"
+    "import base64 as {b64_name}\n"
     "{cache_name} = {{}}\n"
-    "def {func_name}(__s):\n"
-    "    if __s not in {cache_name}:\n"
-    "        {cache_name}[__s] = __pyobf_b64.b64decode(__s.encode('ascii')).decode('utf-8', errors='surrogatepass')\n"
-    "    return {cache_name}[__s]\n"
+    "def {func_name}(_s):\n"
+    "    if _s not in {cache_name}:\n"
+    "        {cache_name}[_s] = {b64_name}.b64decode(_s.encode('ascii')).decode('utf-8', errors='surrogatepass')\n"
+    "    return {cache_name}[_s]\n"
 )
 
 
@@ -575,8 +636,12 @@ def obfuscate(source: str, options: dict) -> dict:
 
     tree = ast.parse(source)
 
-    helper_name = "__pyobf_d"
-    cache_name = "__pyobf_c"
+    used = collect_identifiers(tree)
+    style, length = opts["name_style"], int(opts["name_length"])
+    helper_name = _rand_name(used, style, length)
+    cache_name = _rand_name(used, style, length)
+    b64_name = _rand_name(used, style, length)
+
     if opts["rename_locals"]:
         scanner = DynamicUsageScanner()
         scanner.visit(tree)
@@ -586,12 +651,10 @@ def obfuscate(source: str, options: dict) -> dict:
                 "skipped to avoid breaking the program." % ", ".join(sorted(scanner.reasons))
             )
         else:
-            helper_name = _rand_name(set(), opts["name_style"], int(opts["name_length"]))
-            cache_name = _rand_name({helper_name}, opts["name_style"], int(opts["name_length"]))
             protected_scanner = ProtectedNameScanner()
             protected_scanner.visit(tree)
             tree = Renamer(
-                opts["name_style"], int(opts["name_length"]), protected_scanner.names
+                opts["name_style"], int(opts["name_length"]), protected_scanner.names, used=used
             ).visit(tree)
             ast.fix_missing_locations(tree)
 
@@ -600,7 +663,7 @@ def obfuscate(source: str, options: dict) -> dict:
         ast.fix_missing_locations(tree)
 
     if opts.get("insert_junk", False):
-        tree = JunkCodeInjector(opts["name_style"], int(opts["name_length"])).visit(tree)
+        tree = JunkCodeInjector(opts["name_style"], int(opts["name_length"]), used=used).visit(tree)
         ast.fix_missing_locations(tree)
 
     string_count = 0
@@ -618,14 +681,12 @@ def obfuscate(source: str, options: dict) -> dict:
         ).visit(tree)
         ast.fix_missing_locations(tree)
 
-    result = ast.unparse(tree)
-
     if opts["encode_strings"] and string_count > 0:
-        if use_xor:
-            helper_code = DECODE_HELPER_XOR.format(func_name=helper_name, cache_name=cache_name)
-        else:
-            helper_code = DECODE_HELPER_PLAIN.format(func_name=helper_name, cache_name=cache_name)
-        result = helper_code + "\n" + result
+        tpl = DECODE_HELPER_XOR if use_xor else DECODE_HELPER_PLAIN
+        _insert_helper(tree, tpl.format(func_name=helper_name, cache_name=cache_name, b64_name=b64_name))
+        ast.fix_missing_locations(tree)
+
+    result = ast.unparse(tree)
 
     if opts["compact_indent"]:
         result = _compact_indent(result, 1)
