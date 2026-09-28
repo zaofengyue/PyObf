@@ -1,0 +1,5 @@
+# 统一跨平台换行符规范：全部强制为 LF
+* text=auto eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.md text eol=lf
