@@ -90,10 +90,14 @@
 
   /* ---------- options toolbar ---------- */
   .toolbar{
-    display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center;
+    display:flex; flex-direction:column; gap:14px;
     padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius);
     background:var(--panel); margin-bottom:16px;
   }
+  .toolbar-row{ display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; }
+  .controls-row{ justify-content:space-between; }
+  .controls-left{ display:flex; flex-wrap:wrap; gap:10px 20px; align-items:center; }
+  .controls-right{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-left:auto; }
   .opt{ display:flex; align-items:center; gap:7px; font-size:13.5px; color:var(--text); user-select:none; }
   .opt input[type=checkbox]{ accent-color:var(--amber-strong); width:15px; height:15px; }
   .opt.select-opt{ gap:8px; }
@@ -102,7 +106,6 @@
     font-family:var(--mono); font-size:12.5px; padding:5px 8px; border-radius:6px;
   }
   input[type=number]{ width:60px; }
-  .toolbar .spacer{ flex:1 1 auto; }
   .btn{
     font-family:var(--mono); font-size:13px; font-weight:600; border-radius:8px; border:1px solid transparent;
     padding:9px 16px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:transform .05s ease;
@@ -163,35 +166,42 @@
 
   <section id="workspace">
     <div class="toolbar">
-      <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
-      <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
-      <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串 (Base64 + XOR 动态混淆)</label>
-      <label class="opt"><input type="checkbox" id="optNum" checked /> 数值与布尔混淆 (位运算/算术等价)</label>
-      <label class="opt"><input type="checkbox" id="optJunk" /> 注入干扰死代码与不透明谓词</label>
-      <label class="opt"><input type="checkbox" id="optCompact" checked /> 压缩缩进为 1 空格</label>
-      <label class="opt" title="若部署到生产服务器且开启了云安全防护，建议关闭此项以避免误报"><input type="checkbox" id="optPayload" /> 打包为单行 exec (加载器模式)</label>
+      <div class="toolbar-row options-row">
+        <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
+        <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
+        <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串 (Base64 + XOR 动态混淆)</label>
+        <label class="opt"><input type="checkbox" id="optNum" checked /> 数值与布尔混淆 (位运算/算术等价)</label>
+        <label class="opt"><input type="checkbox" id="optJunk" checked /> 注入干扰死代码与不透明谓词</label>
+        <label class="opt"><input type="checkbox" id="optCompact" checked /> 压缩缩进为 1 空格</label>
+        <label class="opt" title="若部署到生产服务器且开启了云安全防护，建议关闭此项以避免误报"><input type="checkbox" id="optPayload" checked /> 打包为单行 exec (加载器模式)</label>
+      </div>
 
-      <label class="opt select-opt">
-        命名风格
-        <select id="optStyle">
-          <option value="hex">_0x1a2b (十六进制)</option>
-          <option value="letters">_abcdef (字母)</option>
-          <option value="il1">Il1lI (易混淆)</option>
-        </select>
-      </label>
-      <label class="opt select-opt">
-        名称长度
-        <input type="number" id="optLength" min="4" max="16" value="6" />
-      </label>
-      <label class="opt select-opt">
-        随机种子
-        <input type="number" id="optSeed" placeholder="可选" />
-      </label>
+      <div class="toolbar-row controls-row">
+        <div class="controls-left">
+          <label class="opt select-opt">
+            命名风格
+            <select id="optStyle">
+              <option value="hex">_0x1a2b (十六进制)</option>
+              <option value="letters">_abcdef (字母)</option>
+              <option value="il1">Il1lI (易混淆)</option>
+            </select>
+          </label>
+          <label class="opt select-opt">
+            名称长度
+            <input type="number" id="optLength" min="4" max="16" value="6" />
+          </label>
+          <label class="opt select-opt">
+            随机种子
+            <input type="number" id="optSeed" placeholder="可选" />
+          </label>
+        </div>
 
-      <div class="spacer"></div>
-      <button class="btn btn-ghost btn-sm" id="btnExample">加载示例</button>
-      <button class="btn btn-ghost btn-sm" id="btnClear">清空</button>
-      <button class="btn btn-primary" id="btnRun" disabled>▶ 混淆代码</button>
+        <div class="controls-right">
+          <button class="btn btn-ghost btn-sm" id="btnExample">加载示例</button>
+          <button class="btn btn-ghost btn-sm" id="btnClear">清空</button>
+          <button class="btn btn-primary" id="btnRun" disabled>▶ 混淆代码</button>
+        </div>
+      </div>
     </div>
 
     <div class="workspace">
