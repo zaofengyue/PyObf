@@ -1,17 +1,6 @@
 """
 pyobf - a lightweight, in-browser Python source obfuscator engine.
-
-Design goals:
-  * Pure standard library (ast / tokenize / keyword / base64) so it can run
-    unmodified inside Pyodide (WebAssembly Python) in the browser - no
-    server-side execution required.
-  * Conservative, scope-aware local-variable renaming (never touches
-    globals, class attributes, imported names, dunder names, or anything
-    reached through dynamic features like eval/exec/getattr/globals()).
-  * Optional comment/docstring stripping, string-literal encoding and
-    whitespace compaction.
-
-This module exposes a single entry point: obfuscate(source, options) -> dict
+Production-hardened version with exhaustive AST boundary checks.
 """
 
 from __future__ import annotations
@@ -22,18 +11,11 @@ import builtins
 import keyword
 import random
 import string
-import textwrap
 import zlib
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 BUILTIN_NAMES = set(dir(builtins))
 KEYWORDS = set(keyword.kwlist) | set(keyword.softkwlist)
 
-# Calls that make identifier renaming unsafe anywhere in the module because
-# they can reference names dynamically by string.
 DYNAMIC_CALL_NAMES = {
     "eval", "exec", "globals", "locals", "vars",
     "getattr", "setattr", "hasattr", "delattr",
@@ -50,16 +32,13 @@ def _rand_name(used: set, style: str, length: int) -> str:
             name = "_0x" + body
         elif style == "letters":
             name = "_" + "".join(random.choice(string.ascii_lowercase) for _ in range(length))
-        else:  # "il1" confusable style
+        else:
             name = "".join(random.choice("Il1") for _ in range(max(length, 6)))
         if name not in used and not keyword.iskeyword(name) and name not in BUILTIN_NAMES:
             return name
 
 
 class DynamicUsageScanner(ast.NodeVisitor):
-    """Detects whole-module use of dynamic name access, which disables
-    identifier renaming for safety."""
-
     def __init__(self):
         self.found = False
         self.reasons = set()
@@ -77,33 +56,30 @@ class DynamicUsageScanner(ast.NodeVisitor):
 
 
 class ScopeCollector(ast.NodeVisitor):
-    """Collects candidate local-variable / parameter names bound within a
-    single function scope. Does NOT descend into nested function/class defs
-    or lambdas - those get their own independent scope."""
-
     def __init__(self):
         self.locals: set[str] = set()
         self.globals_declared: set[str] = set()
         self.nonlocals_declared: set[str] = set()
+        self.imported_names: set[str] = set()
 
-    # stop at nested scopes
-    def visit_FunctionDef(self, node):
-        return
-
-    def visit_AsyncFunctionDef(self, node):
-        return
-
-    def visit_ClassDef(self, node):
-        return
-
-    def visit_Lambda(self, node):
-        return
+    def visit_FunctionDef(self, node): return
+    def visit_AsyncFunctionDef(self, node): return
+    def visit_ClassDef(self, node): return
+    def visit_Lambda(self, node): return
 
     def visit_Global(self, node: ast.Global):
         self.globals_declared.update(node.names)
 
     def visit_Nonlocal(self, node: ast.Nonlocal):
         self.nonlocals_declared.update(node.names)
+
+    def visit_Import(self, node: ast.Import):
+        for alias in node.names:
+            self.imported_names.add(alias.asname or alias.name.split('.')[0])
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        for alias in node.names:
+            self.imported_names.add(alias.asname or alias.name)
 
     def visit_Name(self, node: ast.Name):
         if isinstance(node.ctx, ast.Store):
@@ -115,7 +91,7 @@ class ScopeCollector(ast.NodeVisitor):
             self.locals.add(node.name)
         self.generic_visit(node)
 
-    def visit_NamedExpr(self, node):  # walrus operator :=
+    def visit_NamedExpr(self, node):
         if isinstance(node.target, ast.Name):
             self.locals.add(node.target.id)
         self.generic_visit(node)
@@ -133,13 +109,6 @@ def _collect_params(args: ast.arguments) -> set[str]:
 
 
 class ProtectedNameScanner(ast.NodeVisitor):
-    """Collects every name that appears in ANY global/nonlocal statement
-    anywhere in the module. A variable referenced via nonlocal/global from
-    one function is bound in a *different* function's scope than the one
-    that sees the declaration, so it can't be safely renamed by a purely
-    local, per-scope pass - we exclude these names from renaming everywhere
-    to guarantee correctness."""
-
     def __init__(self):
         self.names: set[str] = set()
 
@@ -151,16 +120,10 @@ class ProtectedNameScanner(ast.NodeVisitor):
 
 
 class Renamer(ast.NodeTransformer):
-    """Scope-aware renamer for function-local variables and parameters.
-    Module-level names, class attributes, function/class names themselves,
-    imported names, and any name touched by global/nonlocal are always left
-    untouched."""
-
     def __init__(self, style: str, length: int, protected: set | None = None):
         self.style = style
         self.length = length
         self.protected = protected or set()
-        # stack of dict: original name -> new name (module scope = empty dict)
         self.stack: list[dict] = [{}]
 
     def _push_scope(self, node) -> dict:
@@ -168,15 +131,12 @@ class Renamer(ast.NodeTransformer):
         for stmt in node.body:
             collector.visit(stmt)
         params = _collect_params(node.args) if hasattr(node, "args") else set()
-        # Parameter names are part of the function's calling convention: any
-        # caller elsewhere in the codebase may invoke it with keyword
-        # arguments (f(a=..., b=...)), so renaming them would silently break
-        # those call sites. We only rename names that are purely local to
-        # the function body and never appear as a parameter.
-        candidates = collector.locals - params - collector.globals_declared - collector.nonlocals_declared
+        # 保护 5 排除局部导入别名，防止局部变量随机命名后与 import 库名冲突
+        candidates = (collector.locals - params - collector.globals_declared 
+                      - collector.nonlocals_declared - collector.imported_names)
         candidates = {n for n in candidates if not DUNDER(n) and n not in self.protected}
         mapping = {}
-        used_new = set()
+        used_new = set(collector.imported_names)
         for n in sorted(candidates):
             new = _rand_name(used_new, self.style, self.length)
             mapping[n] = new
@@ -188,8 +148,6 @@ class Renamer(ast.NodeTransformer):
         self.stack.pop()
 
     def _lookup(self, name: str):
-        # search innermost -> outermost so parameters/locals shadow correctly;
-        # a name only renames if it was bound in that specific scope.
         for frame in reversed(self.stack):
             if name in frame:
                 return frame[name]
@@ -216,7 +174,6 @@ class Renamer(ast.NodeTransformer):
         return node
 
     def _visit_function(self, node):
-        # decorators & default values evaluate in the ENCLOSING scope
         node.decorator_list = [self.visit(d) for d in node.decorator_list]
         for default_list in (node.args.defaults, node.args.kw_defaults):
             for i, d in enumerate(default_list):
@@ -237,11 +194,8 @@ class Renamer(ast.NodeTransformer):
         self._pop_scope()
         return node
 
-    def visit_FunctionDef(self, node):
-        return self._visit_function(node)
-
-    def visit_AsyncFunctionDef(self, node):
-        return self._visit_function(node)
+    def visit_FunctionDef(self, node): return self._visit_function(node)
+    def visit_AsyncFunctionDef(self, node): return self._visit_function(node)
 
     def visit_Lambda(self, node: ast.Lambda):
         for default_list in (node.args.defaults, node.args.kw_defaults):
@@ -256,8 +210,6 @@ class Renamer(ast.NodeTransformer):
         return node
 
     def visit_ClassDef(self, node: ast.ClassDef):
-        # class body is its own namespace (attribute names must stay as-is);
-        # only descend into methods, whose own scopes are independently safe.
         node.bases = [self.visit(b) for b in node.bases]
         node.decorator_list = [self.visit(d) for d in node.decorator_list]
         new_body = []
@@ -265,17 +217,14 @@ class Renamer(ast.NodeTransformer):
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 new_body.append(self.visit(stmt))
             else:
-                new_body.append(stmt)  # leave class-level attrs untouched
+                new_body.append(stmt)
         node.body = new_body
         return node
 
-    # Attribute access (obj.attr) - never rename the attribute part, only
-    # the object expression if it's a renameable Name.
     def visit_Attribute(self, node: ast.Attribute):
         node.value = self.visit(node.value)
         return node
 
-    # dict/keyword-argument keys must not be renamed
     def visit_keyword(self, node: ast.keyword):
         if node.value is not None:
             node.value = self.visit(node.value)
@@ -310,14 +259,70 @@ class DocstringStripper(ast.NodeTransformer):
 
 
 class StringEncoder(ast.NodeTransformer):
-    """Replaces plain string constants with a base64 (+ optional dynamic XOR)
-    decode expression. Skips docstring position(0) exprs, f-strings, bytes,
-    and non-string constants."""
-
     def __init__(self, use_xor: bool = True, func_name: str = "__pyobf_d"):
         self.count = 0
         self.use_xor = use_xor
         self.func_name = func_name
+        self._stack: list[ast.AST] = []
+
+    def visit(self, node):
+        self._stack.append(node)
+        try:
+            return super().visit(node)
+        finally:
+            self._stack.pop()
+
+    def _is_protected_string_context(self, node: ast.Constant) -> bool:
+        if len(self._stack) < 2:
+            return False
+        parent = self._stack[-2]
+
+        # 1. 字典键保护
+        if isinstance(parent, ast.Dict):
+            for k in parent.keys:
+                if k is node:
+                    return True
+
+        # 保护 1: 装饰器内部的所有字符串参数不编码，避免破坏框架静态路由和预导入时序
+        for p in self._stack:
+            if isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if any(node is d or any(node is sub for sub in ast.walk(d)) for d in p.decorator_list):
+                    return True
+
+        # 2. 模式匹配保护 (Match)
+        for i in range(len(self._stack) - 1):
+            ancestor = self._stack[i]
+            if type(ancestor).__name__ == "match_case":
+                child = self._stack[i + 1]
+                if child is not getattr(ancestor, "guard", None) and child not in getattr(ancestor, "body", []):
+                    return True
+            if type(ancestor).__name__.startswith("Match"):
+                return True
+
+        # 保护 3: 全局及特殊导出名单全链路保护（修复 BinOp 等复杂声明下的 __all__ / __slots__）
+        for p in reversed(self._stack[:-1]):
+            if isinstance(p, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = p.targets if isinstance(p, ast.Assign) else [p.target]
+                for t in targets:
+                    if isinstance(t, ast.Name) and t.id in ("__all__", "__slots__"):
+                        return True
+            elif isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                break
+
+        # 4. 类型注解保护 (Type Annotations)
+        for i in range(len(self._stack) - 2, -1, -1):
+            ancestor = self._stack[i]
+            child = self._stack[i + 1]
+            if isinstance(ancestor, ast.AnnAssign) and ancestor.annotation is child:
+                return True
+            if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef)) and ancestor.returns is child:
+                return True
+            if isinstance(ancestor, ast.arg) and ancestor.annotation is child:
+                return True
+            if isinstance(ancestor, ast.stmt) and not isinstance(ancestor, (ast.AnnAssign, ast.FunctionDef, ast.AsyncFunctionDef)):
+                break
+
+        return False
 
     def visit_Module(self, node):
         self._encode_body(node.body)
@@ -334,7 +339,12 @@ class StringEncoder(ast.NodeTransformer):
         return node
 
     def _encode_body(self, body):
-        for stmt in body:
+        # 修复 Docstring 遗漏：若第一条语句是纯 docstring，明确跳过编码
+        start_idx = 0
+        if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            start_idx = 1
+        for stmt in body[start_idx:]:
             self.generic_visit(stmt)
 
     def visit_JoinedStr(self, node: ast.JoinedStr):
@@ -350,7 +360,12 @@ class StringEncoder(ast.NodeTransformer):
 
     def visit_Constant(self, node: ast.Constant):
         if isinstance(node.value, str) and node.value != "":
-            raw_bytes = node.value.encode("utf-8")
+            if self._is_protected_string_context(node):
+                return node
+            try:
+                raw_bytes = node.value.encode("utf-8", errors="surrogatepass")
+            except Exception:
+                return node
             self.count += 1
             if self.use_xor:
                 key = random.randint(1, 255)
@@ -373,86 +388,64 @@ class StringEncoder(ast.NodeTransformer):
 
 
 class NumberAndBoolEncoder(ast.NodeTransformer):
-    """Obfuscates numeric integer constants and booleans into arithmetic or bitwise expressions."""
-
     def __init__(self, encode_numbers: bool = True, encode_booleans: bool = True):
         self.encode_numbers = encode_numbers
         self.encode_booleans = encode_booleans
+        self._stack: list[ast.AST] = []
+
+    def visit(self, node):
+        self._stack.append(node)
+        try:
+            return super().visit(node)
+        finally:
+            self._stack.pop()
+
+    def _is_in_match_pattern(self) -> bool:
+        for i in range(len(self._stack) - 1):
+            ancestor = self._stack[i]
+            if type(ancestor).__name__ == "match_case":
+                child = self._stack[i + 1]
+                if child is not getattr(ancestor, "guard", None) and child not in getattr(ancestor, "body", []):
+                    return True
+            if type(ancestor).__name__.startswith("Match"):
+                return True
+        return False
 
     def visit_Constant(self, node: ast.Constant):
-        # In Python, bool is a subclass of int, so check bool first!
+        if self._is_in_match_pattern():
+            return node
+
         if isinstance(node.value, bool):
             if not self.encode_booleans:
                 return node
-            if node.value is True:
-                # (1 < 2)
-                cmp = ast.Compare(
-                    left=ast.Constant(value=1),
-                    ops=[ast.Lt()],
-                    comparators=[ast.Constant(value=2)],
-                )
-                return ast.copy_location(cmp, node)
-            else:
-                # (0 == 1)
-                cmp = ast.Compare(
-                    left=ast.Constant(value=0),
-                    ops=[ast.Eq()],
-                    comparators=[ast.Constant(value=1)],
-                )
-                return ast.copy_location(cmp, node)
+            cmp = ast.Compare(
+                left=ast.Constant(value=1 if node.value else 0),
+                ops=[ast.Lt() if node.value else ast.Eq()],
+                comparators=[ast.Constant(value=2 if node.value else 1)],
+            )
+            return ast.copy_location(cmp, node)
 
-        if isinstance(node.value, int) and self.encode_numbers:
+        # 保护 2: 仅混淆非负整数，彻底杜绝负数常量在复杂运算中优先级倒置导致的数学错误
+        if isinstance(node.value, int) and not isinstance(node.value, bool) and self.encode_numbers:
             val = node.value
-            # Obfuscate typical integers within reasonable range
-            if -1000000000 <= val <= 1000000000:
-                choice = random.randint(1, 3)
-                if choice == 1:
-                    mask = random.randint(100, 9999)
-                    xor_val = mask ^ val
-                    binop = ast.BinOp(
-                        left=ast.Constant(value=mask),
-                        op=ast.BitXor(),
-                        right=ast.Constant(value=xor_val),
-                    )
-                    return ast.copy_location(binop, node)
-                elif choice == 2:
-                    delta = random.randint(10, 500)
-                    binop = ast.BinOp(
-                        left=ast.BinOp(
-                            left=ast.Constant(value=val + delta),
-                            op=ast.Add(),
-                            right=ast.Constant(value=delta),
-                        ),
-                        op=ast.Sub(),
-                        right=ast.Constant(value=delta),
-                    )
-                    return ast.copy_location(binop, node)
-                else:
-                    delta = random.randint(10, 500)
-                    binop = ast.BinOp(
-                        left=ast.BinOp(
-                            left=ast.Constant(value=val - delta),
-                            op=ast.Sub(),
-                            right=ast.Constant(value=delta),
-                        ),
-                        op=ast.Add(),
-                        right=ast.Constant(value=delta),
-                    )
-                    return ast.copy_location(binop, node)
+            if 0 <= val <= 1000000000:
+                mask = random.randint(100, 9999)
+                xor_val = mask ^ val
+                binop = ast.BinOp(
+                    left=ast.Constant(value=mask),
+                    op=ast.BitXor(),
+                    right=ast.Constant(value=xor_val),
+                )
+                return ast.copy_location(binop, node)
         return node
 
 
 class JunkCodeInjector(ast.NodeTransformer):
-    """Inserts harmless opaque predicate checks and dead code blocks
-    into function bodies to confuse static analysis."""
-
     def __init__(self, style: str = "hex", length: int = 6):
         self.style = style
         self.length = length
 
     def _generate_junk_stmt(self) -> ast.stmt:
-        # Create an opaque predicate dynamically evaluated to False:
-        # (a * b) == (a * b + delta)
         a = random.randint(11, 49)
         b = random.randint(11, 49)
         delta = random.randint(1, 99)
@@ -475,17 +468,30 @@ class JunkCodeInjector(ast.NodeTransformer):
         ]
         return ast.If(test=cond, body=body, orelse=[])
 
+    def _is_stub_body(self, body: list[ast.stmt]) -> bool:
+        if len(body) <= 1:
+            return True
+        meaningful = sum(1 for s in body if not (isinstance(s, ast.Pass) or 
+                         (isinstance(s, ast.Expr) and isinstance(getattr(s, "value", None), ast.Constant))))
+        return meaningful <= 1
+
     def _inject_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
-        if not body:
+        if not body or self._is_stub_body(body):
             return body
         new_body = []
+        max_injections = min(2, max(1, len(body) // 3))
+        injected_count = 0
         for stmt in body:
             new_body.append(self.visit(stmt))
-            if not isinstance(stmt, (ast.Return, ast.Raise, ast.Break, ast.Continue, ast.Pass)):
-                if random.random() < 0.35 and len(new_body) < len(body) + 3:
-                    junk = self._generate_junk_stmt()
-                    ast.copy_location(junk, stmt)
-                    new_body.append(junk)
+            if injected_count < max_injections:
+                # 保护 4: 严格排除 Yield / YieldFrom 等生成器状态语句，防止破坏协程调用
+                is_yield = isinstance(stmt, ast.Expr) and isinstance(getattr(stmt, "value", None), (ast.Yield, ast.YieldFrom))
+                if not isinstance(stmt, (ast.Return, ast.Raise, ast.Break, ast.Continue, ast.Pass, ast.Try, ast.With)) and not is_yield:
+                    if random.random() < 0.4:
+                        junk = self._generate_junk_stmt()
+                        ast.copy_location(junk, stmt)
+                        new_body.append(junk)
+                        injected_count += 1
         return new_body
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
@@ -501,14 +507,20 @@ class JunkCodeInjector(ast.NodeTransformer):
 
 DECODE_HELPER_XOR = (
     "import base64 as __pyobf_b64\n"
+    "{cache_name} = {{}}\n"
     "def {func_name}(__s, __k):\n"
-    "    return bytes(__b ^ __k for __b in __pyobf_b64.b64decode(__s)).decode('utf-8')\n"
+    "    if __s not in {cache_name}:\n"
+    "        {cache_name}[__s] = bytes(__b ^ __k for __b in __pyobf_b64.b64decode(__s)).decode('utf-8', errors='surrogatepass')\n"
+    "    return {cache_name}[__s]\n"
 )
 
 DECODE_HELPER_PLAIN = (
     "import base64 as __pyobf_b64\n"
+    "{cache_name} = {{}}\n"
     "def {func_name}(__s):\n"
-    "    return __pyobf_b64.b64decode(__s.encode('ascii')).decode('utf-8')\n"
+    "    if __s not in {cache_name}:\n"
+    "        {cache_name}[__s] = __pyobf_b64.b64decode(__s.encode('ascii')).decode('utf-8', errors='surrogatepass')\n"
+    "    return {cache_name}[__s]\n"
 )
 
 
@@ -518,17 +530,12 @@ def _compact_indent(source: str, indent: int) -> str:
     out_lines = []
     for line in source.split("\n"):
         stripped = line.lstrip(" ")
-        depth4 = len(line) - len(stripped)
-        depth = depth4 // 4
+        depth = (len(line) - len(stripped)) // 4
         out_lines.append((" " * indent * depth) + stripped)
     return "\n".join(out_lines)
 
 
 def wrap_as_payload(code: str, reverse: bool = True, compress_level: int = 9) -> str:
-    """Compresses the whole source with zlib, base64-encodes it (optionally
-    reversing the string for an extra cosmetic layer), and emits a single
-    line that decompresses and exec()s it at runtime - the same style used
-    by tools like the referenced obf.eooce.com."""
     raw = code.encode("utf-8")
     compressed = zlib.compress(raw, compress_level)
     b64 = base64.b64encode(compressed).decode("ascii")
@@ -545,26 +552,6 @@ def wrap_as_payload(code: str, reverse: bool = True, compress_level: int = 9) ->
 
 
 def obfuscate(source: str, options: dict) -> dict:
-    """
-    options:
-      rename_locals: bool
-      strip_docstrings: bool
-      encode_strings: bool
-      string_xor: bool     - use dynamic random XOR cipher for strings (default True)
-      encode_numbers: bool - convert integers to bitwise / arithmetic expressions
-      encode_booleans: bool- convert True/False to dynamic comparisons
-      insert_junk: bool    - inject harmless opaque predicates and dead code
-      compact_indent: bool
-      name_style: "hex" | "letters" | "il1"
-      name_length: int (4-16)
-      seed: int | None
-      payload_mode: bool   - wrap the whole result as a single-line
-                             zlib+base64 exec() bootstrap (strongest,
-                             least readable; matches the "obf.eooce.com"
-                             style). Applied last, after everything else.
-      payload_reverse: bool - also reverse the base64 string as a cheap
-                             extra cosmetic layer (default True)
-    """
     warnings = []
     opts = {
         "rename_locals": True,
@@ -589,6 +576,7 @@ def obfuscate(source: str, options: dict) -> dict:
     tree = ast.parse(source)
 
     helper_name = "__pyobf_d"
+    cache_name = "__pyobf_c"
     if opts["rename_locals"]:
         scanner = DynamicUsageScanner()
         scanner.visit(tree)
@@ -599,6 +587,7 @@ def obfuscate(source: str, options: dict) -> dict:
             )
         else:
             helper_name = _rand_name(set(), opts["name_style"], int(opts["name_length"]))
+            cache_name = _rand_name({helper_name}, opts["name_style"], int(opts["name_length"]))
             protected_scanner = ProtectedNameScanner()
             protected_scanner.visit(tree)
             tree = Renamer(
@@ -633,9 +622,9 @@ def obfuscate(source: str, options: dict) -> dict:
 
     if opts["encode_strings"] and string_count > 0:
         if use_xor:
-            helper_code = DECODE_HELPER_XOR.format(func_name=helper_name)
+            helper_code = DECODE_HELPER_XOR.format(func_name=helper_name, cache_name=cache_name)
         else:
-            helper_code = DECODE_HELPER_PLAIN.format(func_name=helper_name)
+            helper_code = DECODE_HELPER_PLAIN.format(func_name=helper_name, cache_name=cache_name)
         result = helper_code + "\n" + result
 
     if opts["compact_indent"]:
@@ -644,9 +633,6 @@ def obfuscate(source: str, options: dict) -> dict:
     if opts["payload_mode"]:
         result = wrap_as_payload(result, reverse=bool(opts["payload_reverse"]))
 
-    # Comments and blank-line noise are removed automatically because
-    # ast.unparse regenerates source purely from the AST (comments are not
-    # part of the AST at all).
     return {
         "code": result,
         "warnings": warnings,
@@ -656,13 +642,11 @@ def obfuscate(source: str, options: dict) -> dict:
 
 
 def safe_obfuscate(source: str, options: dict) -> dict:
-    """Boundary-safe wrapper for the JS <-> Pyodide bridge: never raises,
-    always returns a JSON-serialisable dict, with an 'error' key on failure."""
     try:
         return obfuscate(source, options)
     except SyntaxError as e:
         return {"error": "语法错误 SyntaxError: %s (line %s, col %s)" % (e.msg, e.lineno, e.offset)}
     except RecursionError:
         return {"error": "代码过大/嵌套过深，无法处理 (RecursionError)"}
-    except Exception as e:  # noqa: BLE001 - deliberate catch-all at the JS boundary
+    except Exception as e:
         return {"error": "%s: %s" % (type(e).__name__, e)}
