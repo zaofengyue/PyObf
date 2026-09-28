@@ -165,9 +165,11 @@
     <div class="toolbar">
       <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
       <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
-      <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串常量 (base64)</label>
+      <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串 (Base64 + XOR 动态混淆)</label>
+      <label class="opt"><input type="checkbox" id="optNum" checked /> 数值与布尔混淆 (位运算/算术等价)</label>
+      <label class="opt"><input type="checkbox" id="optJunk" /> 注入干扰死代码与不透明谓词</label>
       <label class="opt"><input type="checkbox" id="optCompact" checked /> 压缩缩进为 1 空格</label>
-      <label class="opt"><input type="checkbox" id="optPayload" checked /> 打包为单行 exec (强力模式)</label>
+      <label class="opt" title="若部署到生产服务器且开启了云安全防护，建议关闭此项以避免误报"><input type="checkbox" id="optPayload" /> 打包为单行 exec (加载器模式)</label>
 
       <label class="opt select-opt">
         命名风格
@@ -294,10 +296,15 @@ if __name__ == "__main__":
 
   function getOptions(){
     const seedVal = document.getElementById('optSeed').value;
+    const numChecked = document.getElementById('optNum').checked;
     return {
       rename_locals: document.getElementById('optRename').checked,
       strip_docstrings: document.getElementById('optDoc').checked,
       encode_strings: document.getElementById('optStr').checked,
+      string_xor: true,
+      encode_numbers: numChecked,
+      encode_booleans: numChecked,
+      insert_junk: document.getElementById('optJunk').checked,
       compact_indent: document.getElementById('optCompact').checked,
       payload_mode: document.getElementById('optPayload').checked,
       payload_reverse: true,

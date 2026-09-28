@@ -310,15 +310,14 @@ class DocstringStripper(ast.NodeTransformer):
 
 
 class StringEncoder(ast.NodeTransformer):
-    """Replaces plain string constants with a base64-decode expression,
-    e.g. "hi" -> __pyobf_d('aGk=').  Skips docstring position(0) exprs,
-    f-strings, bytes, and non-string constants."""
+    """Replaces plain string constants with a base64 (+ optional dynamic XOR)
+    decode expression. Skips docstring position(0) exprs, f-strings, bytes,
+    and non-string constants."""
 
-    def __init__(self):
+    def __init__(self, use_xor: bool = True, func_name: str = "__pyobf_d"):
         self.count = 0
-
-    def _is_docstring_slot(self, parent_body, node):
-        return parent_body and parent_body[0] is node
+        self.use_xor = use_xor
+        self.func_name = func_name
 
     def visit_Module(self, node):
         self._encode_body(node.body)
@@ -339,9 +338,6 @@ class StringEncoder(ast.NodeTransformer):
             self.generic_visit(stmt)
 
     def visit_JoinedStr(self, node: ast.JoinedStr):
-        # f-strings: only encode the *expression* parts, never the literal
-        # text segments (those are plain ast.Constant chunks that ast.unparse
-        # requires to stay as raw Constant nodes inside a JoinedStr).
         new_values = []
         for v in node.values:
             if isinstance(v, ast.FormattedValue):
@@ -354,20 +350,164 @@ class StringEncoder(ast.NodeTransformer):
 
     def visit_Constant(self, node: ast.Constant):
         if isinstance(node.value, str) and node.value != "":
-            encoded = base64.b64encode(node.value.encode("utf-8")).decode("ascii")
+            raw_bytes = node.value.encode("utf-8")
             self.count += 1
-            call = ast.Call(
-                func=ast.Name(id="__pyobf_d", ctx=ast.Load()),
-                args=[ast.Constant(value=encoded)],
-                keywords=[],
-            )
+            if self.use_xor:
+                key = random.randint(1, 255)
+                xored = bytes(b ^ key for b in raw_bytes)
+                encoded = base64.b64encode(xored).decode("ascii")
+                call = ast.Call(
+                    func=ast.Name(id=self.func_name, ctx=ast.Load()),
+                    args=[ast.Constant(value=encoded), ast.Constant(value=key)],
+                    keywords=[],
+                )
+            else:
+                encoded = base64.b64encode(raw_bytes).decode("ascii")
+                call = ast.Call(
+                    func=ast.Name(id=self.func_name, ctx=ast.Load()),
+                    args=[ast.Constant(value=encoded)],
+                    keywords=[],
+                )
             return ast.copy_location(call, node)
         return node
 
 
-DECODE_HELPER = (
+class NumberAndBoolEncoder(ast.NodeTransformer):
+    """Obfuscates numeric integer constants and booleans into arithmetic or bitwise expressions."""
+
+    def __init__(self, encode_numbers: bool = True, encode_booleans: bool = True):
+        self.encode_numbers = encode_numbers
+        self.encode_booleans = encode_booleans
+
+    def visit_Constant(self, node: ast.Constant):
+        # In Python, bool is a subclass of int, so check bool first!
+        if isinstance(node.value, bool):
+            if not self.encode_booleans:
+                return node
+            if node.value is True:
+                # (1 < 2)
+                cmp = ast.Compare(
+                    left=ast.Constant(value=1),
+                    ops=[ast.Lt()],
+                    comparators=[ast.Constant(value=2)],
+                )
+                return ast.copy_location(cmp, node)
+            else:
+                # (0 == 1)
+                cmp = ast.Compare(
+                    left=ast.Constant(value=0),
+                    ops=[ast.Eq()],
+                    comparators=[ast.Constant(value=1)],
+                )
+                return ast.copy_location(cmp, node)
+
+        if isinstance(node.value, int) and self.encode_numbers:
+            val = node.value
+            # Obfuscate typical integers within reasonable range
+            if -1000000000 <= val <= 1000000000:
+                choice = random.randint(1, 3)
+                if choice == 1:
+                    mask = random.randint(100, 9999)
+                    xor_val = mask ^ val
+                    binop = ast.BinOp(
+                        left=ast.Constant(value=mask),
+                        op=ast.BitXor(),
+                        right=ast.Constant(value=xor_val),
+                    )
+                    return ast.copy_location(binop, node)
+                elif choice == 2:
+                    delta = random.randint(10, 500)
+                    binop = ast.BinOp(
+                        left=ast.BinOp(
+                            left=ast.Constant(value=val + delta),
+                            op=ast.Add(),
+                            right=ast.Constant(value=delta),
+                        ),
+                        op=ast.Sub(),
+                        right=ast.Constant(value=delta),
+                    )
+                    return ast.copy_location(binop, node)
+                else:
+                    delta = random.randint(10, 500)
+                    binop = ast.BinOp(
+                        left=ast.BinOp(
+                            left=ast.Constant(value=val - delta),
+                            op=ast.Sub(),
+                            right=ast.Constant(value=delta),
+                        ),
+                        op=ast.Add(),
+                        right=ast.Constant(value=delta),
+                    )
+                    return ast.copy_location(binop, node)
+        return node
+
+
+class JunkCodeInjector(ast.NodeTransformer):
+    """Inserts harmless opaque predicate checks and dead code blocks
+    into function bodies to confuse static analysis."""
+
+    def __init__(self, style: str = "hex", length: int = 6):
+        self.style = style
+        self.length = length
+
+    def _generate_junk_stmt(self) -> ast.stmt:
+        # Create an opaque predicate dynamically evaluated to False:
+        # (a * b) == (a * b + delta)
+        a = random.randint(11, 49)
+        b = random.randint(11, 49)
+        delta = random.randint(1, 99)
+        target = (a * b) + delta
+        cond = ast.Compare(
+            left=ast.BinOp(
+                left=ast.Constant(value=a),
+                op=ast.Mult(),
+                right=ast.Constant(value=b)
+            ),
+            ops=[ast.Eq()],
+            comparators=[ast.Constant(value=target)]
+        )
+        dummy_var = _rand_name(set(), self.style, self.length)
+        body = [
+            ast.Assign(
+                targets=[ast.Name(id=dummy_var, ctx=ast.Store())],
+                value=ast.Constant(value=None)
+            )
+        ]
+        return ast.If(test=cond, body=body, orelse=[])
+
+    def _inject_body(self, body: list[ast.stmt]) -> list[ast.stmt]:
+        if not body:
+            return body
+        new_body = []
+        for stmt in body:
+            new_body.append(self.visit(stmt))
+            if not isinstance(stmt, (ast.Return, ast.Raise, ast.Break, ast.Continue, ast.Pass)):
+                if random.random() < 0.35 and len(new_body) < len(body) + 3:
+                    junk = self._generate_junk_stmt()
+                    ast.copy_location(junk, stmt)
+                    new_body.append(junk)
+        return new_body
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        node.body = self._inject_body(node.body)
+        self.generic_visit(node)
+        return node
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        node.body = self._inject_body(node.body)
+        self.generic_visit(node)
+        return node
+
+
+DECODE_HELPER_XOR = (
     "import base64 as __pyobf_b64\n"
-    "def __pyobf_d(__s):\n"
+    "def {func_name}(__s, __k):\n"
+    "    return bytes(__b ^ __k for __b in __pyobf_b64.b64decode(__s)).decode('utf-8')\n"
+)
+
+DECODE_HELPER_PLAIN = (
+    "import base64 as __pyobf_b64\n"
+    "def {func_name}(__s):\n"
     "    return __pyobf_b64.b64decode(__s.encode('ascii')).decode('utf-8')\n"
 )
 
@@ -410,6 +550,10 @@ def obfuscate(source: str, options: dict) -> dict:
       rename_locals: bool
       strip_docstrings: bool
       encode_strings: bool
+      string_xor: bool     - use dynamic random XOR cipher for strings (default True)
+      encode_numbers: bool - convert integers to bitwise / arithmetic expressions
+      encode_booleans: bool- convert True/False to dynamic comparisons
+      insert_junk: bool    - inject harmless opaque predicates and dead code
       compact_indent: bool
       name_style: "hex" | "letters" | "il1"
       name_length: int (4-16)
@@ -426,6 +570,10 @@ def obfuscate(source: str, options: dict) -> dict:
         "rename_locals": True,
         "strip_docstrings": True,
         "encode_strings": False,
+        "string_xor": True,
+        "encode_numbers": False,
+        "encode_booleans": False,
+        "insert_junk": False,
         "compact_indent": False,
         "name_style": "hex",
         "name_length": 6,
@@ -440,6 +588,7 @@ def obfuscate(source: str, options: dict) -> dict:
 
     tree = ast.parse(source)
 
+    helper_name = "__pyobf_d"
     if opts["rename_locals"]:
         scanner = DynamicUsageScanner()
         scanner.visit(tree)
@@ -449,6 +598,7 @@ def obfuscate(source: str, options: dict) -> dict:
                 "skipped to avoid breaking the program." % ", ".join(sorted(scanner.reasons))
             )
         else:
+            helper_name = _rand_name(set(), opts["name_style"], int(opts["name_length"]))
             protected_scanner = ProtectedNameScanner()
             protected_scanner.visit(tree)
             tree = Renamer(
@@ -460,17 +610,33 @@ def obfuscate(source: str, options: dict) -> dict:
         tree = DocstringStripper().visit(tree)
         ast.fix_missing_locations(tree)
 
+    if opts.get("insert_junk", False):
+        tree = JunkCodeInjector(opts["name_style"], int(opts["name_length"])).visit(tree)
+        ast.fix_missing_locations(tree)
+
     string_count = 0
+    use_xor = bool(opts.get("string_xor", True))
     if opts["encode_strings"]:
-        encoder = StringEncoder()
+        encoder = StringEncoder(use_xor=use_xor, func_name=helper_name)
         tree = encoder.visit(tree)
         ast.fix_missing_locations(tree)
         string_count = encoder.count
 
+    if opts.get("encode_numbers", False) or opts.get("encode_booleans", False):
+        tree = NumberAndBoolEncoder(
+            encode_numbers=bool(opts.get("encode_numbers", False)),
+            encode_booleans=bool(opts.get("encode_booleans", False)),
+        ).visit(tree)
+        ast.fix_missing_locations(tree)
+
     result = ast.unparse(tree)
 
     if opts["encode_strings"] and string_count > 0:
-        result = DECODE_HELPER + "\n" + result
+        if use_xor:
+            helper_code = DECODE_HELPER_XOR.format(func_name=helper_name)
+        else:
+            helper_code = DECODE_HELPER_PLAIN.format(func_name=helper_name)
+        result = helper_code + "\n" + result
 
     if opts["compact_indent"]:
         result = _compact_indent(result, 1)
