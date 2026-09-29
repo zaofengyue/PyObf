@@ -157,7 +157,10 @@
   <header class="top">
     <div class="brand"><span class="glyph">{}</span> PyObf <span class="tagline">纯浏览器端 Python 代码混淆工具</span></div>
     <div class="top-right">
-      <div id="status" class="loading"><span class="led"></span><span id="statusText">正在加载 Python 运行时 (Pyodide)…</span></div>
+      <div id="status" class="loading">
+        <span class="led"></span><span id="statusText">正在加载 Python 运行时 (Pyodide)…</span>
+        <button class="btn btn-ghost btn-sm" id="btnRetry" style="display:none; padding:2px 8px; font-size:11px; margin-left:6px;">重试加载</button>
+      </div>
       <a class="gh-btn" href="https://github.com/zaofengyue/pyobf" target="_blank" rel="noopener">
         ★ GitHub
       </a>
@@ -167,7 +170,7 @@
   <section id="workspace">
     <div class="toolbar">
       <div class="toolbar-row options-row">
-        <label class="opt"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
+        <label class="opt" title="重命名局部变量。注意：运行时动态拼接或反射的变量名无法被静态检测，请人工留意"><input type="checkbox" id="optRename" checked /> 重命名局部变量</label>
         <label class="opt"><input type="checkbox" id="optDoc" checked /> 移除注释 / 文档字符串</label>
         <label class="opt"><input type="checkbox" id="optStr" checked /> 编码字符串 (Base64 + XOR 动态混淆)</label>
         <label class="opt"><input type="checkbox" id="optNum" checked /> 数值与布尔混淆 (位运算/算术等价)</label>
@@ -330,8 +333,10 @@ if __name__ == "__main__":
   }
 
   let pyodide = null;
+  const btnRetry = document.getElementById('btnRetry');
 
   async function initPyodide(){
+    if (btnRetry) btnRetry.style.display = 'none';
     try{
       pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.3/full/' });
       const resp = await fetch('obfuscator.py', { cache: 'no-store' });
@@ -343,7 +348,16 @@ if __name__ == "__main__":
     } catch (err){
       console.error(err);
       setStatus('error', '加载失败：' + err.message);
+      if (btnRetry) btnRetry.style.display = 'inline-block';
     }
+  }
+
+  if (btnRetry) {
+    btnRetry.addEventListener('click', () => {
+      btnRetry.style.display = 'none';
+      setStatus('loading', '正在重试加载 Python 运行时 (Pyodide)…');
+      initPyodide();
+    });
   }
 
   function callObfuscate(source, options){
@@ -358,7 +372,7 @@ __pyobf_json.dumps(__pyobf_result)
     return JSON.parse(resultJson);
   }
 
-  function runObfuscation(){
+  async function runObfuscation(){
     if (!pyodide) return;
     const source = inputCM.getValue();
     warningsBox.innerHTML = '';
@@ -368,29 +382,41 @@ __pyobf_json.dumps(__pyobf_result)
       statsRow.style.display = 'none';
       return;
     }
-    let result;
-    try{
-      result = callObfuscate(source, getOptions());
-    } catch (err){
-      errorBox.innerHTML = '<div class="errorbox"><b>JS/Pyodide 错误</b>\\n' + escapeHtml(String(err)) + '</div>';
-      return;
-    }
-    if (result.error){
-      outputCM.setValue('');
-      statsRow.style.display = 'none';
-      errorBox.innerHTML = '<div class="errorbox">' + escapeHtml(result.error) + '</div>';
-      return;
-    }
-    outputCM.setValue(result.code);
-    document.getElementById('statOrig').textContent = humanSize(result.original_size);
-    document.getElementById('statObf').textContent = humanSize(result.obfuscated_size);
-    const deltaEl = document.getElementById('statDelta');
-    const diff = result.obfuscated_size - result.original_size;
-    deltaEl.textContent = (diff >= 0 ? '增大 +' : '减小 ') + humanSize(Math.abs(diff));
-    deltaEl.className = diff >= 0 ? 'grow' : 'shrink';
-    statsRow.style.display = 'flex';
-    if (result.warnings && result.warnings.length){
-      warningsBox.innerHTML = '<div class="warnings"><b>提示</b>' + result.warnings.map(escapeHtml).join('<br>') + '</div>';
+
+    const originalLabel = btnRun.textContent;
+    btnRun.disabled = true;
+    btnRun.textContent = '混淆中…';
+    // 等待双帧重绘，确保浏览器先将按钮禁用及“混淆中…”状态渲染上屏，避免主线程被密集运算卡死无反馈
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    try {
+      let result;
+      try{
+        result = callObfuscate(source, getOptions());
+      } catch (err){
+        errorBox.innerHTML = '<div class="errorbox"><b>JS/Pyodide 错误</b>\n' + escapeHtml(String(err)) + '</div>';
+        return;
+      }
+      if (result.error){
+        outputCM.setValue('');
+        statsRow.style.display = 'none';
+        errorBox.innerHTML = '<div class="errorbox">' + escapeHtml(result.error) + '</div>';
+        return;
+      }
+      outputCM.setValue(result.code);
+      document.getElementById('statOrig').textContent = humanSize(result.original_size);
+      document.getElementById('statObf').textContent = humanSize(result.obfuscated_size);
+      const deltaEl = document.getElementById('statDelta');
+      const diff = result.obfuscated_size - result.original_size;
+      deltaEl.textContent = (diff >= 0 ? '增大 +' : '减小 ') + humanSize(Math.abs(diff));
+      deltaEl.className = diff >= 0 ? 'grow' : 'shrink';
+      statsRow.style.display = 'flex';
+      if (result.warnings && result.warnings.length){
+        warningsBox.innerHTML = '<div class="warnings"><b>提示</b>' + result.warnings.map(escapeHtml).join('<br>') + '</div>';
+      }
+    } finally {
+      btnRun.disabled = false;
+      btnRun.textContent = originalLabel;
     }
   }
 
@@ -398,16 +424,45 @@ __pyobf_json.dumps(__pyobf_result)
     return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+  document.getElementById('optStyle').addEventListener('change', (e) => {
+    const lenInput = document.getElementById('optLength');
+    if (e.target.value === 'il1') {
+      lenInput.min = '6';
+      if (+lenInput.value < 6) lenInput.value = '6';
+    } else {
+      lenInput.min = '4';
+    }
+  });
+
   document.getElementById('btnRun').addEventListener('click', runObfuscation);
   document.getElementById('btnExample').addEventListener('click', () => inputCM.setValue(EXAMPLE));
   document.getElementById('btnClear').addEventListener('click', () => { inputCM.setValue(''); outputCM.setValue(''); statsRow.style.display='none'; warningsBox.innerHTML=''; errorBox.innerHTML=''; });
   document.getElementById('btnCopy').addEventListener('click', async () => {
     const text = outputCM.getValue();
     if (!text) return;
-    await navigator.clipboard.writeText(text);
     const btn = document.getElementById('btnCopy');
-    const old = btn.textContent; btn.textContent = '已复制 ✓';
-    setTimeout(() => btn.textContent = old, 1200);
+    const old = btn.textContent;
+    const flash = (label) => { btn.textContent = label; setTimeout(() => { btn.textContent = old; }, 1200); };
+
+    try {
+      await navigator.clipboard.writeText(text);
+      flash('已复制 ✓');
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        flash('已复制 ✓');
+      } catch {
+        flash('复制失败，请手动选择');
+      }
+    }
   });
   document.getElementById('btnDownload').addEventListener('click', () => {
     const text = outputCM.getValue();

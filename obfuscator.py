@@ -68,15 +68,28 @@ class DynamicUsageScanner(ast.NodeVisitor):
         self.found = False
         self.reasons = set()
 
+    def _flag(self, name):
+        if name in DYNAMIC_CALL_NAMES:
+            self.found = True
+            self.reasons.add(name)
+
     def visit_Call(self, node: ast.Call):
         name = None
         if isinstance(node.func, ast.Name):
             name = node.func.id
         elif isinstance(node.func, ast.Attribute):
             name = node.func.attr
-        if name in DYNAMIC_CALL_NAMES:
-            self.found = True
-            self.reasons.add(name)
+        self._flag(name)
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name):
+        if isinstance(node.ctx, ast.Load):
+            self._flag(node.id)
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute):
+        if isinstance(node.ctx, ast.Load):
+            self._flag(node.attr)
         self.generic_visit(node)
 
 
@@ -633,6 +646,8 @@ def obfuscate(source: str, options: dict) -> dict:
 
     if opts["seed"] is not None:
         random.seed(opts["seed"])
+    else:
+        random.seed()
 
     tree = ast.parse(source)
 
