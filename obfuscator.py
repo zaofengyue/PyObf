@@ -78,18 +78,18 @@ class DynamicUsageScanner(ast.NodeVisitor):
         if isinstance(node.func, ast.Name):
             name = node.func.id
         elif isinstance(node.func, ast.Attribute):
-            name = node.func.attr
+            # 仅当显式调用 builtins.<func> 时视为动态规避（如 import builtins; builtins.eval(...)）
+            # 杜绝将普通对象的属性调用（如 re.compile(...)、self.vars() 等）误判为动态内置函数
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "builtins":
+                name = node.func.attr
         self._flag(name)
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name):
+        # 仅拦截裸名引用（如 ev = eval），防止通过变量别名绕过直接调用监测；
+        # 属性名称在本项目中从不被重命名，且极易与内置名重合，故不监听属性读写
         if isinstance(node.ctx, ast.Load):
             self._flag(node.id)
-        self.generic_visit(node)
-
-    def visit_Attribute(self, node: ast.Attribute):
-        if isinstance(node.ctx, ast.Load):
-            self._flag(node.attr)
         self.generic_visit(node)
 
 
